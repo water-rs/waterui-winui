@@ -40,16 +40,17 @@ $registry = @{}
 foreach ($p in $ourMeta.packages) {
     if ($p.source -and $p.source.StartsWith('registry')) { $registry[$p.name] = $true }
 }
-$patchSection = ($(foreach ($p in $meta.packages) {
-        if ($registry.ContainsKey($p.name)) {
-            '{0} = {{ path = "{1}" }}' -f $p.name, ((Split-Path $p.manifest_path -Parent) -replace '\\', '/')
-        }
-    } | Sort-Object) -join "`n")
+$patchLines = foreach ($p in $meta.packages) {
+    if ($registry.ContainsKey($p.name)) {
+        '{0} = {{ path = "{1}" }}' -f $p.name, ((Split-Path $p.manifest_path -Parent) -replace '\\', '/')
+    }
+}
+$patchSection = ($patchLines | Sort-Object) -join "`n"
 
 $examplesRoot = Join-Path $WateruiPath 'examples'
 $examples = foreach ($p in $meta.packages) {
     $dir = Split-Path $p.manifest_path -Parent
-    if ($dir.StartsWith($examplesRoot)) {
+    if ($dir.StartsWith($examplesRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
         $lib = $p.targets | Where-Object { $_.kind -contains 'lib' } | Select-Object -First 1
         if (-not $lib) {
             Write-Host "::warning::skipping $($p.name): no lib target"
