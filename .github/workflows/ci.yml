@@ -57,7 +57,7 @@ jobs:
         run: .\target\debug\smoke.exe
         timeout-minutes: 10
       - name: Screenshot form example
-        run: tools\screenshot-form.ps1
+        run: tools\capture-window.ps1 -Exe .\target\debug\form.exe -OutPrefix form -IncludeDesktop
         timeout-minutes: 10
       - uses: actions/upload-artifact@v4
         with:
