@@ -27,6 +27,7 @@ jobs:
           repository: water-rs/waterui
           ref: ${{ steps.pin.outputs.tag }}
           path: waterui
+          submodules: recursive
       - uses: dtolnay/rust-toolchain@stable
       - name: Install DirectX Shader Compiler
         uses: tracel-ai/github-actions/install-dxc@295f2fdbae5271f4f8ad56d634e4ff6a95daafc8
