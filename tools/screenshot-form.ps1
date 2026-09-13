@@ -6,7 +6,7 @@ $ErrorActionPreference = 'Stop'
 $exe = Join-Path $PSScriptRoot '..\target\debug\form.exe'
 $proc = Start-Process -FilePath $exe -PassThru
 
-Add-Type -AssemblyName System.Drawing
+Add-Type -AssemblyName System.Drawing, System.Windows.Forms
 Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
