@@ -1,23 +1,25 @@
-//! The component abstraction every WaterUI view is rendered through.
+//! The component abstraction every `WaterUI` view is rendered through.
 
+#![allow(clippy::inline_always, clippy::ref_as_ptr)] // generated `implement` macro items
 use waterui_core::Environment;
 use waterui_core::layout::{
     ProposalSize, Rect as LayoutRect, StretchAxis, SubView, ViewDimensions, measure_layout,
 };
 use windows_core::implement;
 
+#[allow(clippy::wildcard_imports)] // the generated namespace
 use crate::bindings::*;
 use crate::renderer::WinUiRenderer;
 
-/// Implemented by every WaterUI view type that maps onto a WinUI element.
+/// Implemented by every `WaterUI` view type that maps onto a `WinUI` element.
 pub trait WinUiComponent {
-    /// Renders the view into a native WinUI element.
+    /// Renders the view into a native `WinUI` element.
     ///
     /// `renderer` is used for recursive rendering of child views.
     fn render(self, env: &Environment, renderer: &mut WinUiRenderer) -> UIElement;
 }
 
-/// A `UIElement` paired with the layout information WaterUI needs to
+/// A `UIElement` paired with the layout information `WaterUI` needs to
 /// measure and place it.
 pub struct WinUiSubView {
     element: UIElement,
@@ -72,7 +74,7 @@ impl SubView for WinUiSubView {
     }
 }
 
-/// A `Panel` subclass whose measure/arrange delegates to a WaterUI
+/// A `Panel` subclass whose measure/arrange delegates to a `WaterUI`
 /// [`Layout`]. Children are the `Panel`'s own `Children`, in the same order
 /// as `subviews`.
 ///

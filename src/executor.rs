@@ -1,6 +1,6 @@
 //! `DispatcherQueue`-backed executors.
 //!
-//! WaterUI's `LocalExecutor` contract maps directly onto WinUI's dispatcher:
+//! `WaterUI`'s `LocalExecutor` contract maps directly onto `WinUI`'s dispatcher:
 //! `spawn_local` schedules runnables through `TryEnqueueWithPriority`, which is
 //! the same queue `Application::Start` pumps on the UI thread.
 
@@ -11,9 +11,10 @@ use executor_core::{
     async_task::{self, AsyncTask, Runnable},
 };
 
+#[allow(clippy::wildcard_imports)] // the generated namespace
 use crate::bindings::*;
 
-/// Schedules `f` on the WinUI dispatcher at normal priority.
+/// Schedules `f` on the `WinUI` dispatcher at normal priority.
 ///
 /// The callback itself runs on the UI thread; it may capture non-`Send` state
 /// because `DispatcherQueueHandler` is a synchronous delegate invoked in place.
@@ -27,7 +28,7 @@ pub fn enqueue_on_ui_thread(queue: &DispatcherQueue, f: impl FnOnce() + 'static)
             &DispatcherQueueHandler::new(move || {
                 f.borrow_mut()
                     .take()
-                    .expect("dispatcher callback ran twice")()
+                    .expect("dispatcher callback ran twice")();
             }),
         )
         .expect("DispatcherQueue::TryEnqueue failed");
@@ -47,7 +48,7 @@ impl DispatcherQueueExecutor {
         })
     }
 
-    /// The underlying WinUI dispatcher, for watcher callbacks that must hop
+    /// The underlying `WinUI` dispatcher, for watcher callbacks that must hop
     /// back to the UI thread.
     pub const fn queue(&self) -> &DispatcherQueue {
         &self.queue

@@ -38,6 +38,7 @@ use waterui_shape::{ClipShape, ShapeKind};
 use windows_core::Interface;
 use windows_numerics::{Vector2, Vector3};
 
+#[allow(clippy::wildcard_imports)] // the generated namespace
 use crate::bindings::*;
 use crate::renderer::{RenderContext, WinUiRenderer};
 use crate::util::{
@@ -45,7 +46,7 @@ use crate::util::{
     store_watcher_guard, subscribe_then_get,
 };
 
-/// Registers every metadata handler the WinUI backend supports.
+/// Registers every metadata handler the `WinUI` backend supports.
 pub(crate) fn register(dispatcher: &mut ViewDispatcher<(), RenderContext, UIElement>) {
     register_environment(dispatcher);
     register_retain(dispatcher);
@@ -324,16 +325,18 @@ fn register_cursor(dispatcher: &mut ViewDispatcher<(), RenderContext, UIElement>
 
 fn cursor_shape(style: CursorStyle) -> InputSystemCursorShape {
     match style {
-        CursorStyle::Arrow => InputSystemCursorShape::Arrow,
-        CursorStyle::PointingHand => InputSystemCursorShape::Hand,
+        CursorStyle::PointingHand | CursorStyle::OpenHand | CursorStyle::ClosedHand => {
+            InputSystemCursorShape::Hand
+        }
         CursorStyle::IBeam => InputSystemCursorShape::IBeam,
         CursorStyle::Crosshair => InputSystemCursorShape::Cross,
-        CursorStyle::OpenHand | CursorStyle::ClosedHand => InputSystemCursorShape::Hand,
         CursorStyle::NotAllowed => InputSystemCursorShape::UniversalNo,
-        CursorStyle::ResizeLeft | CursorStyle::ResizeRight => InputSystemCursorShape::SizeWestEast,
-        CursorStyle::ResizeUp | CursorStyle::ResizeDown => InputSystemCursorShape::SizeNorthSouth,
-        CursorStyle::ResizeLeftRight => InputSystemCursorShape::SizeWestEast,
-        CursorStyle::ResizeUpDown => InputSystemCursorShape::SizeNorthSouth,
+        CursorStyle::ResizeLeft | CursorStyle::ResizeRight | CursorStyle::ResizeLeftRight => {
+            InputSystemCursorShape::SizeWestEast
+        }
+        CursorStyle::ResizeUp | CursorStyle::ResizeDown | CursorStyle::ResizeUpDown => {
+            InputSystemCursorShape::SizeNorthSouth
+        }
         CursorStyle::Move => InputSystemCursorShape::SizeAll,
         CursorStyle::Wait => InputSystemCursorShape::Wait,
         _ => InputSystemCursorShape::Arrow,
@@ -350,7 +353,7 @@ fn register_border(dispatcher: &mut ViewDispatcher<(), RenderContext, UIElement>
             let element = crate::bindings::Border::new().expect("Border::new");
             element.SetChild(&content).expect("Border::SetChild");
             element
-                .SetBorderThickness(edges_to_thickness(&border.edges, border.width))
+                .SetBorderThickness(edges_to_thickness(border.edges, border.width))
                 .expect("Border::SetBorderThickness");
             let radius = f64::from(border.corner_radius);
             element
@@ -380,7 +383,7 @@ fn register_border(dispatcher: &mut ViewDispatcher<(), RenderContext, UIElement>
     );
 }
 
-fn edges_to_thickness(edges: &waterui_layout::EdgeSet, width: f32) -> Thickness {
+fn edges_to_thickness(edges: waterui_layout::EdgeSet, width: f32) -> Thickness {
     let w = f64::from(width);
     Thickness {
         left: if edges.leading { w } else { 0.0 },
@@ -392,6 +395,7 @@ fn edges_to_thickness(edges: &waterui_layout::EdgeSet, width: f32) -> Thickness 
 
 /// Tracks `ActualSize` and writes `CenterPoint = anchor * size` so `Scale` and
 /// `Rotation` pivot around the requested normalized anchor.
+#[allow(clippy::cast_possible_truncation)] // Xaml geometry APIs take f32; WaterUI uses f64
 fn track_center_point(element: &UIElement, anchor: Anchor) {
     let fe = framework(element);
     let apply = move |element: &UIElement| {
@@ -464,7 +468,7 @@ fn register_scale(dispatcher: &mut ViewDispatcher<(), RenderContext, UIElement>)
     );
 }
 
-/// `Metadata<Rotation>` — `UIElement.Rotation` (degrees, matching WaterUI).
+/// `Metadata<Rotation>` — `UIElement.Rotation` (degrees, matching `WaterUI`).
 fn register_rotation(dispatcher: &mut ViewDispatcher<(), RenderContext, UIElement>) {
     WinUiRenderer::register_with_renderer::<Metadata<Rotation>>(
         dispatcher,
@@ -546,6 +550,8 @@ fn register_clip_shape(dispatcher: &mut ViewDispatcher<(), RenderContext, UIElem
     );
 }
 
+#[allow(clippy::cast_possible_truncation, clippy::too_many_lines)]
+// Xaml geometry APIs take f32; WaterUI uses f64
 fn install_clip(element: &UIElement, shape: &ClipShape) {
     let fe = framework(element);
     match shape.kind() {
@@ -747,10 +753,8 @@ fn register_on_event(dispatcher: &mut ViewDispatcher<(), RenderContext, UIElemen
                             .expect("PointerRoutedEventArgs::GetCurrentPoint")
                             .Position()
                             .expect("PointerPoint::Position");
-                        let hover_env = env.extending(HoverEvent::new(LayoutPoint::new(
-                            point.x as f32,
-                            point.y as f32,
-                        )));
+                        let hover_env =
+                            env.extending(HoverEvent::new(LayoutPoint::new(point.x, point.y)));
                         handler.borrow_mut().handle(&hover_env);
                     })
                     .expect("UIElement::PointerMoved"),
@@ -767,7 +771,7 @@ fn register_on_event(dispatcher: &mut ViewDispatcher<(), RenderContext, UIElemen
     );
 }
 
-/// `Metadata<GestureObserver>` — map WaterUI gestures onto WinUI pointer and
+/// `Metadata<GestureObserver>` — map `WaterUI` gestures onto `WinUI` pointer and
 /// manipulation events.
 fn register_gesture_observer(dispatcher: &mut ViewDispatcher<(), RenderContext, UIElement>) {
     WinUiRenderer::register_with_renderer::<Metadata<GestureObserver>>(
@@ -785,6 +789,7 @@ fn register_gesture_observer(dispatcher: &mut ViewDispatcher<(), RenderContext, 
     );
 }
 
+#[allow(clippy::too_many_lines)] // flat registration/wiring code
 fn install_gesture(
     element: &UIElement,
     gesture: &Gesture,
@@ -852,8 +857,8 @@ fn install_gesture(
                     let event_env = env.extending(MagnificationEvent {
                         phase: GesturePhase::Updated,
                         center: GesturePoint {
-                            x: position.x as f32,
-                            y: position.y as f32,
+                            x: position.x,
+                            y: position.y,
                         },
                         scale: cumulative.scale,
                         velocity: delta.scale,
@@ -876,8 +881,8 @@ fn install_gesture(
                     let event_env = env.extending(RotationEvent {
                         phase: GesturePhase::Updated,
                         center: GesturePoint {
-                            x: position.x as f32,
-                            y: position.y as f32,
+                            x: position.x,
+                            y: position.y,
                         },
                         angle: cumulative.rotation.to_radians(),
                         velocity: delta.rotation.to_radians(),
@@ -940,7 +945,8 @@ fn register_context_menu(dispatcher: &mut ViewDispatcher<(), RenderContext, UIEl
     );
 }
 
-/// `Metadata<Draggable>` / `Metadata<DropDestination>` — WinUI drag & drop.
+/// `Metadata<Draggable>` / `Metadata<DropDestination>` — `WinUI` drag & drop.
+#[allow(clippy::too_many_lines)] // flat registration/wiring code
 fn register_drag_drop(dispatcher: &mut ViewDispatcher<(), RenderContext, UIElement>) {
     WinUiRenderer::register_with_renderer::<Metadata<Draggable>>(
         dispatcher,
@@ -1234,7 +1240,6 @@ fn apply_accessibility_role(element: &UIElement, role: &AccessibilityRole) {
         AccessibilityRole::MenuItemCheckbox => (AutomationLandmarkType::None, "menuitemcheckbox"),
         AccessibilityRole::MenuItemRadio => (AutomationLandmarkType::None, "menuitemradio"),
         AccessibilityRole::Combobox => (AutomationLandmarkType::None, "combobox"),
-        AccessibilityRole::Group => (AutomationLandmarkType::None, "group"),
         _ => (AutomationLandmarkType::None, "group"),
     };
     if landmark != AutomationLandmarkType::None {
@@ -1305,7 +1310,7 @@ fn hide_descendants(element: &UIElement) {
     }
 }
 
-/// Metadata kinds with no WinUI semantic — passthrough.
+/// Metadata kinds with no `WinUI` semantic — passthrough.
 fn register_passthroughs(dispatcher: &mut ViewDispatcher<(), RenderContext, UIElement>) {
     WinUiRenderer::register_passthrough_metadata::<Secure>(dispatcher);
     WinUiRenderer::register_passthrough_metadata::<StandardDynamicRange>(dispatcher);
@@ -1317,6 +1322,6 @@ fn register_passthroughs(dispatcher: &mut ViewDispatcher<(), RenderContext, UIEl
     #[cfg(feature = "gpu")]
     WinUiRenderer::register_with_renderer::<Metadata<waterui_graphics::AppliedFilter>>(
         dispatcher,
-        |renderer, metadata, env| crate::gpu::render_applied_filter(renderer, metadata, env),
+        crate::gpu::render_applied_filter,
     );
 }

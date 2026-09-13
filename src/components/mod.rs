@@ -1,4 +1,4 @@
-//! Native WinUI realizations of WaterUI views.
+//! Native `WinUI` realizations of `WaterUI` views.
 
 pub(crate) mod collections;
 pub(crate) mod controls;

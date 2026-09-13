@@ -52,25 +52,22 @@ fn main() -> ExitCode {
     if args.first().map(String::as_str) == Some("query") {
         return query(&root, &args[1..]);
     }
-    if args.iter().any(|arg| arg == "fetch") {
-        if let Err(error) = fetch_winmds(&root.join(WINMD_DIR)) {
-            eprintln!("fetch failed: {error}");
-            return ExitCode::FAILURE;
-        }
+    if args.iter().any(|arg| arg == "fetch")
+        && let Err(error) = fetch_winmds(&root.join(WINMD_DIR))
+    {
+        eprintln!("fetch failed: {error}");
+        return ExitCode::FAILURE;
     }
 
     if let Err(error) = generate_extras(&root) {
         eprintln!("extras winmd failed: {error}");
         return ExitCode::FAILURE;
     }
-    if let Err(error) = generate(&root) {
-        eprintln!("bindgen failed: {error}");
-        return ExitCode::FAILURE;
-    }
+    generate(&root);
     ExitCode::SUCCESS
 }
 
-/// Downloads the pinned WASDK runtime NuGet package, opens the bundled x64 MSIX
+/// Downloads the pinned WASDK runtime `NuGet` package, opens the bundled x64 MSIX
 /// (itself a zip), and extracts every `Microsoft.*.winmd` into `dir`.
 fn fetch_winmds(dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
     let url = format!("{WASDK_RUNTIME_NUGET}/{WASDK_VERSION}");
@@ -84,7 +81,7 @@ fn fetch_winmds(dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
     for index in 0..msix.len() {
         let mut entry = msix.by_index(index)?;
         let name = entry.name().to_owned();
-        if !(name.starts_with("Microsoft.") && name.ends_with(".winmd")) {
+        if !(name.starts_with("Microsoft.") && name.to_lowercase().ends_with(".winmd")) {
             continue;
         }
         let mut contents = Vec::new();
@@ -143,7 +140,7 @@ fn query(root: &Path, names: &[String]) -> ExitCode {
     ExitCode::SUCCESS
 }
 
-fn generate(root: &Path) -> Result<(), Box<dyn std::error::Error>> {
+fn generate(root: &Path) {
     let output = root.join(OUTPUT_FILE);
     let mut builder = windows_bindgen::builder();
     builder
@@ -161,5 +158,4 @@ fn generate(root: &Path) -> Result<(), Box<dyn std::error::Error>> {
         .filter_files([root.join(RUNTIME_FILTER), root.join(CONTROLS_FILTER)])
         .write();
     println!("wrote {}", output.display());
-    Ok(())
 }

@@ -9,6 +9,7 @@ use waterui_layout::scroll::{Axis, ScrollView};
 use waterui_layout::spacer::Spacer;
 use windows_core::Interface;
 
+#[allow(clippy::wildcard_imports)] // the generated namespace
 use crate::bindings::*;
 use crate::component::WinUiComponent;
 use crate::executor::enqueue_on_ui_thread;
@@ -26,7 +27,7 @@ impl WinUiComponent for Native<Spacer> {
 }
 
 impl WinUiComponent for Native<FixedContainer> {
-    /// Composes a `Panel` whose measure/arrange runs the WaterUI `Layout`.
+    /// Composes a `Panel` whose measure/arrange runs the `WaterUI` `Layout`.
     fn render(self, env: &Environment, renderer: &mut WinUiRenderer) -> UIElement {
         let (layout, contents) = self.into_inner().into_inner();
         let subviews = render_subviews(contents, env, renderer);
@@ -139,15 +140,13 @@ impl WinUiComponent for Native<ScrollView> {
 
 fn apply_scroll_target(viewer: &ScrollViewer, axis: Axis, target: Point) {
     let horizontal = match axis {
-        Axis::Horizontal => Some(f64::from(target.x)),
+        Axis::Horizontal | Axis::All => Some(f64::from(target.x)),
         Axis::Vertical => None,
-        Axis::All => Some(f64::from(target.x)),
         _ => panic!("unsupported scroll axis on the WinUI backend: {axis:?}"),
     };
     let vertical = match axis {
+        Axis::Vertical | Axis::All => Some(f64::from(target.y)),
         Axis::Horizontal => None,
-        Axis::Vertical => Some(f64::from(target.y)),
-        Axis::All => Some(f64::from(target.y)),
         _ => panic!("unsupported scroll axis on the WinUI backend: {axis:?}"),
     };
     let _ = viewer.ChangeView(horizontal, vertical, None);

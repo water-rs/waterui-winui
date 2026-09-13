@@ -5,6 +5,7 @@ use waterui_controls::menu::{ResolvedMenu, ResolvedMenuItem};
 use waterui_core::{Environment, Native};
 use windows_core::Interface;
 
+#[allow(clippy::wildcard_imports)] // the generated namespace
 use crate::bindings::*;
 use crate::component::WinUiComponent;
 use crate::executor::enqueue_on_ui_thread;
@@ -91,14 +92,14 @@ fn build_menu_item(
                 .SetIsEnabled(!command.disabled.get())
                 .expect("Control::SetIsEnabled");
 
-            if let Some(icon) = &command.icon {
-                if let Some(symbol) = super::graphics::segoe_symbol_for(icon.name.as_str()) {
-                    let native = SymbolIcon::new().expect("SymbolIcon::new");
-                    native.SetSymbol(symbol).expect("SymbolIcon::SetSymbol");
-                    entry
-                        .SetIcon(&native.cast::<IconElement>().expect("IconElement"))
-                        .expect("MenuFlyoutItem::SetIcon");
-                }
+            if let Some(icon) = &command.icon
+                && let Some(symbol) = super::graphics::segoe_symbol_for(icon.name.as_str())
+            {
+                let native = SymbolIcon::new().expect("SymbolIcon::new");
+                native.SetSymbol(symbol).expect("SymbolIcon::SetSymbol");
+                entry
+                    .SetIcon(&native.cast::<IconElement>().expect("IconElement"))
+                    .expect("MenuFlyoutItem::SetIcon");
             }
 
             let action = command.action.clone();

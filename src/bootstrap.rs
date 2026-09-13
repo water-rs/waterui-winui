@@ -1,6 +1,6 @@
 //! Windows App Runtime bootstrap for unpackaged processes.
 //!
-//! WinUI 3 lives in the `Microsoft.WindowsAppRuntime` framework package, not in
+//! `WinUI` 3 lives in the `Microsoft.WindowsAppRuntime` framework package, not in
 //! the OS. A packaged (MSIX) process already has it in its package graph; an
 //! unpackaged process must resolve and add it dynamically before touching any
 //! `Microsoft.UI` type.
@@ -9,6 +9,7 @@ use std::path::Path;
 
 use windows_core::{HRESULT, PCWSTR, PWSTR, w};
 
+#[allow(clippy::wildcard_imports)] // the generated namespace
 use crate::bindings::*;
 
 const FRAMEWORK_FAMILY: PCWSTR = w!("Microsoft.WindowsAppRuntime.2_8wekyb3d8bbwe");
@@ -24,11 +25,11 @@ windows_core::link!("kernel32.dll" "system" fn SizeofResource(module: *mut core:
 /// Whether the current process has MSIX package identity.
 pub fn is_packaged_process() -> windows_core::Result<bool> {
     let mut length = 0;
-    let rc = unsafe { GetCurrentPackageFullName(&mut length, PWSTR::null()) };
+    let rc = unsafe { GetCurrentPackageFullName(&raw mut length, PWSTR::null()) };
     match rc {
         ERROR_INSUFFICIENT_BUFFER => Ok(true),
         APPMODEL_ERROR_NO_PACKAGE => Ok(false),
-        other => Err(HRESULT(other | 0x8007_0000u32 as i32).into()),
+        other => Err(HRESULT(other | 0x8007_0000u32.cast_signed()).into()),
     }
 }
 
@@ -80,7 +81,7 @@ fn bootstrap_framework_dependency() -> windows_core::Result<()> {
             PACKAGE_DEPENDENCY_LIFETIME_KIND_PROCESS,
             PCWSTR::null(),
             0,
-            &mut dependency_id,
+            &raw mut dependency_id,
         )
     };
 
@@ -102,8 +103,8 @@ fn bootstrap_framework_dependency() -> windows_core::Result<()> {
             PCWSTR(dependency_id.0),
             0,
             0,
-            &mut context,
-            &mut package_full_name,
+            &raw mut context,
+            &raw mut package_full_name,
         )
     };
     unsafe {
@@ -228,7 +229,7 @@ fn self_contained_manifest_present() -> bool {
 }
 
 /// Initializes the UI thread: per-monitor DPI awareness then COM as an STA.
-/// WinUI requires STA; `RPC_E_CHANGED_MODE` is a hard error.
+/// `WinUI` requires STA; `RPC_E_CHANGED_MODE` is a hard error.
 pub fn initialize_ui_thread() -> windows_core::Result<()> {
     unsafe {
         _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);

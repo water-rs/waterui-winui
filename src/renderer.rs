@@ -1,4 +1,4 @@
-//! View renderer that dispatches `WaterUI` views to WinUI elements.
+//! View renderer that dispatches `WaterUI` views to `WinUI` elements.
 
 use waterui::component::list::ListConfig;
 use waterui::component::progress::ProgressConfig;
@@ -33,6 +33,7 @@ use waterui_shape::ResolvedShape;
 use waterui_text::TextConfig;
 use windows_core::Interface;
 
+#[allow(clippy::wildcard_imports)] // the generated namespace
 use crate::bindings::*;
 use crate::component::WinUiComponent;
 use crate::executor::DispatcherQueueExecutor;
@@ -71,7 +72,7 @@ impl RenderContext {
     }
 }
 
-/// Renders `WaterUI` views into native WinUI `UIElement`s.
+/// Renders `WaterUI` views into native `WinUI` `UIElement`s.
 pub struct WinUiRenderer {
     dispatcher: ViewDispatcher<(), RenderContext, UIElement>,
     executor: DispatcherQueueExecutor,
@@ -81,6 +82,10 @@ impl WinUiRenderer {
     /// Creates a renderer bound to the current thread's `DispatcherQueue`.
     ///
     /// Must be called on the UI thread after the runtime is bootstrapped.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the current thread has no `DispatcherQueue`.
     pub fn for_current_thread() -> windows_core::Result<Self> {
         Ok(Self::new(DispatcherQueueExecutor::for_current_thread()?))
     }
@@ -101,13 +106,13 @@ impl WinUiRenderer {
         &self.executor
     }
 
-    /// Renders a view to a WinUI element.
+    /// Renders a view to a `WinUI` element.
     pub fn render<V: View>(&mut self, view: V, env: &Environment) -> UIElement {
         let ctx = RenderContext::with_renderer(self);
         self.dispatcher.dispatch(view, env, ctx)
     }
 
-    /// Renders an `AnyView` to a WinUI element.
+    /// Renders an `AnyView` to a `WinUI` element.
     pub fn render_any(&mut self, view: AnyView, env: &Environment) -> UIElement {
         let ctx = RenderContext::with_renderer(self);
         self.dispatcher.dispatch(view, env, ctx)
@@ -178,7 +183,7 @@ impl WinUiRenderer {
     }
 
     /// Registers a handler for `Metadata<T>` that renders the content
-    /// unchanged because the metadata has no WinUI realization.
+    /// unchanged because the metadata has no `WinUI` realization.
     pub(crate) fn register_passthrough_metadata<T: MetadataKey>(
         dispatcher: &mut ViewDispatcher<(), RenderContext, UIElement>,
     ) where

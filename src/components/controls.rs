@@ -1,4 +1,4 @@
-//! Basic WinUI controls: button, toggle, slider, text entry, stepper,
+//! Basic `WinUI` controls: button, toggle, slider, text entry, stepper,
 //! progress.
 
 use std::cell::RefCell;
@@ -15,6 +15,7 @@ use waterui_form::secure::SecureFieldConfig;
 use waterui_text::styled::StyledStr;
 use windows_core::Interface;
 
+#[allow(clippy::wildcard_imports)] // the generated namespace
 use crate::bindings::*;
 use crate::component::WinUiComponent;
 use crate::executor::enqueue_on_ui_thread;
@@ -114,7 +115,7 @@ fn render_toggle_switch(
         let queue = queue.clone();
         enqueue_on_ui_thread(&queue, move || {
             if let Some(switch) = weak.upgrade()
-                && switch.IsOn().map(|on| on != value).unwrap_or(false)
+                && switch.IsOn().is_ok_and(|on| on != value)
             {
                 switch.SetIsOn(value).expect("ToggleSwitch::SetIsOn");
             }
@@ -163,7 +164,7 @@ fn render_checkbox(
         let queue = queue.clone();
         enqueue_on_ui_thread(&queue, move || {
             if let Some(toggle) = weak.upgrade()
-                && toggle.IsChecked().map(|on| on != value).unwrap_or(true)
+                && toggle.IsChecked().is_ok_and(|on| on != value)
             {
                 toggle
                     .SetIsChecked(Some(value))
@@ -218,8 +219,7 @@ impl WinUiComponent for Native<SliderConfig> {
                 if let Some(range) = weak.upgrade()
                     && range
                         .Value()
-                        .map(|current| (current - value).abs() > f64::EPSILON)
-                        .unwrap_or(false)
+                        .is_ok_and(|current| (current - value).abs() > f64::EPSILON)
                 {
                     range.SetValue(value).expect("RangeBase::SetValue");
                 }
@@ -302,7 +302,7 @@ impl WinUiComponent for Native<ResolvedTextFieldConfig> {
             let queue = queue.clone();
             enqueue_on_ui_thread(&queue, move || {
                 if let Some(textbox) = weak.upgrade()
-                    && textbox.Text().map(|t| t != value).unwrap_or(true)
+                    && textbox.Text().is_ok_and(|t| t != value)
                 {
                     textbox.SetText(&value).expect("TextBox::SetText");
                 }
@@ -382,7 +382,7 @@ impl WinUiComponent for Native<SecureFieldConfig> {
             let queue = queue.clone();
             enqueue_on_ui_thread(&queue, move || {
                 if let Some(password) = weak.upgrade()
-                    && password.Password().map(|p| p != value).unwrap_or(true)
+                    && password.Password().is_ok_and(|p| p != value)
                 {
                     password
                         .SetPassword(&value)
@@ -460,8 +460,7 @@ impl WinUiComponent for Native<StepperConfig> {
                 if let Some(number) = weak.upgrade()
                     && number
                         .Value()
-                        .map(|v| (v - value).abs() > f64::EPSILON)
-                        .unwrap_or(false)
+                        .is_ok_and(|v| (v - value).abs() > f64::EPSILON)
                 {
                     number.SetValue(value).expect("NumberBox::SetValue");
                 }

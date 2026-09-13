@@ -14,6 +14,7 @@ use waterui_navigation::{
 };
 use windows_core::{IInspectable, Interface};
 
+#[allow(clippy::wildcard_imports)] // the generated namespace
 use crate::bindings::*;
 use crate::component::WinUiComponent;
 use crate::executor::enqueue_on_ui_thread;
@@ -51,6 +52,7 @@ fn set_visible(element: &impl Interface, hidden: bool) {
 ///
 /// `back` is invoked when the level's back button is clicked; the button is
 /// hidden when `back` is `None` (the root level).
+#[allow(clippy::too_many_lines)] // flat registration/wiring code
 fn build_level(
     bar: Bar,
     content: UIElement,
@@ -262,13 +264,13 @@ fn build_level(
     root.cast().expect("Grid is a UIElement")
 }
 
-/// One destination pushed onto the WinUI stack: the level element carries
+/// One destination pushed onto the `WinUI` stack: the level element carries
 /// its own chrome and destination state.
 struct StackEntry {
     state: waterui_navigation::NavigationDestinationState,
 }
 
-/// The WinUI navigation controller: applies `NavigationTransaction`s to a
+/// The `WinUI` navigation controller: applies `NavigationTransaction`s to a
 /// `Grid` whose children are the level elements; only the top is visible.
 ///
 /// The state is `Rc`-shared so the boxed trait object held by
@@ -308,8 +310,7 @@ impl WinUiNavigationController {
             .borrow_mut()
             .entries
             .last_mut()
-            .map(|entry| entry.state.attempt_pop(&env))
-            .unwrap_or(true);
+            .is_none_or(|entry| entry.state.attempt_pop(&env));
         if allowed && let Some(controller) = &self.inner.borrow().controller {
             controller.request_pop(1);
         }
@@ -405,7 +406,7 @@ impl WinUiComponent for NavigationStack<(), ()> {
 }
 
 impl WinUiComponent for NavigationSplitLayout {
-    /// Renders a WinUI `NavigationView` with the sidebar as pane content and
+    /// Renders a `WinUI` `NavigationView` with the sidebar as pane content and
     /// the detail column swapped by the primary selection.
     fn render(self, env: &Environment, renderer: &mut WinUiRenderer) -> UIElement {
         let (

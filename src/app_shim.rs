@@ -1,25 +1,29 @@
 //! The composed `Application` shim.
 //!
-//! WinUI's `Application` is a composable runtime class: the framework creates
-//! the base object and calls back into our overrides. WaterUI provides
+//! `WinUI`'s `Application` is a composable runtime class: the framework creates
+//! the base object and calls back into our overrides. `WaterUI` provides
 //! `IApplicationOverrides` (the real entry point, `OnLaunched`) and delegates
 //! `IXamlMetadataProvider` to the XAML controls provider so XAML reflection
 //! keeps working.
 
+#![allow(clippy::inline_always, clippy::ref_as_ptr)] // generated `implement` macro items
 use std::cell::RefCell;
 
 use windows_core::{Array, Interface, Ref, implement};
 
+#[allow(clippy::wildcard_imports)] // the generated namespace
 use crate::bindings::*;
+
+type OnLaunched = Box<dyn FnOnce() -> windows_core::Result<()>>;
 
 #[implement(IApplicationOverrides, IXamlMetadataProvider)]
 pub struct AppShim {
     controls_provider: RefCell<Option<XamlControlsXamlMetaDataProvider>>,
-    on_launched: RefCell<Option<Box<dyn FnOnce() -> windows_core::Result<()>>>>,
+    on_launched: RefCell<Option<OnLaunched>>,
 }
 
 impl AppShim {
-    pub fn new(on_launched: Box<dyn FnOnce() -> windows_core::Result<()>>) -> Self {
+    pub fn new(on_launched: OnLaunched) -> Self {
         Self {
             controls_provider: RefCell::new(None),
             on_launched: RefCell::new(Some(on_launched)),
@@ -64,9 +68,7 @@ impl IXamlMetadataProvider_Impl for AppShim_Impl {
 }
 
 /// Creates the composed `Application` whose `OnLaunched` runs `on_launched`.
-pub fn create_application(
-    on_launched: Box<dyn FnOnce() -> windows_core::Result<()>>,
-) -> windows_core::Result<Application> {
+pub fn create_application(on_launched: OnLaunched) -> windows_core::Result<Application> {
     Application::compose(AppShim::new(on_launched))
 }
 

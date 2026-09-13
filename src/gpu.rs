@@ -21,6 +21,7 @@ use waterui_graphics::{
 };
 use windows_core::Interface;
 
+#[allow(clippy::wildcard_imports)] // the generated namespace
 use crate::bindings::*;
 use crate::executor::enqueue_on_ui_thread;
 use crate::renderer::WinUiRenderer;
@@ -28,7 +29,7 @@ use crate::util::framework;
 
 /// Shared per-surface state mutated from event handlers and the render pump.
 struct SurfaceState {
-    /// The WaterUI view driving this surface.
+    /// The `WaterUI` view driving this surface.
     view: RefCell<GpuSurface>,
     /// Latest pointer/gesture snapshot fed into `GpuFrame`.
     pointer: Cell<Point>,
@@ -46,6 +47,14 @@ struct SurfaceState {
 }
 
 /// Renders a `GpuSurface` view into a `SwapChainPanel`.
+#[allow(
+    clippy::too_many_lines,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::await_holding_refcell_ref
+)]
+// Flat wiring; pixel conversions saturate intentionally via `as` after
+// `.max(1.0)`; `view` has exactly one borrower on the UI dispatcher.
 pub(crate) fn render_gpu_surface(
     renderer: &WinUiRenderer,
     surface: GpuSurface,
@@ -131,6 +140,7 @@ pub(crate) fn render_gpu_surface(
                 max_samples,
                 redraw_handle,
             );
+            // `view` has exactly one borrower on the single-threaded UI dispatcher.
             state.view.borrow_mut().setup(&ctx, &mut env).await;
             state.ready.set(true);
         });
@@ -348,7 +358,7 @@ fn pump_frame(
     }
 }
 
-/// Shared state for the AppliedFilter capture/present pump.
+/// Shared state for the `AppliedFilter` capture/present pump.
 struct FilterState {
     filter: RefCell<AppliedFilter>,
     clock: RefCell<EffectFrameClock>,
@@ -442,6 +452,12 @@ pub(crate) fn render_applied_filter(
     grid.cast().expect("Grid is a UIElement")
 }
 
+#[allow(
+    clippy::too_many_lines,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss
+)]
+// Flat capture/present pump; pixel conversions saturate intentionally.
 async fn filter_frame(
     content: UIElement,
     grid: Grid,
@@ -485,8 +501,8 @@ async fn filter_frame(
         .ReadBytes(&mut pixels)
         .expect("DataReader::ReadBytes");
 
-    let pw = bitmap.PixelWidth().expect("PixelWidth") as u32;
-    let ph = bitmap.PixelHeight().expect("PixelHeight") as u32;
+    let pw = bitmap.PixelWidth().expect("PixelWidth").cast_unsigned();
+    let ph = bitmap.PixelHeight().expect("PixelHeight").cast_unsigned();
 
     let device = &runtime.context().device;
     let queue_wgpu = &runtime.context().queue;

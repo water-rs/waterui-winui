@@ -1,6 +1,6 @@
-//! Native WinUI 3 backend for `WaterUI`.
+//! Native `WinUI` 3 backend for `WaterUI`.
 //!
-//! This crate projects `WaterUI` views onto Windows App SDK (WinUI 3) controls.
+//! This crate projects `WaterUI` views onto Windows App SDK (`WinUI` 3) controls.
 //! It does not use a virtual tree or a reconciler: a [`ViewDispatcher`] maps
 //! each view to a concrete `Microsoft.UI.Xaml` element once, and `nami`
 //! watchers drive per-property updates directly on the live element.
@@ -11,8 +11,10 @@
 #![cfg(target_os = "windows")]
 
 #[allow(
-    clippy::missing_transmute_annotations,
-    clippy::upper_case_acronyms,
+    clippy::all,
+    clippy::pedantic,
+    clippy::nursery,
+    clippy::cargo,
     non_camel_case_types,
     non_snake_case,
     non_upper_case_globals,

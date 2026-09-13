@@ -1,5 +1,6 @@
-//! Shared helpers for the WinUI backend.
+//! Shared helpers for the `WinUI` backend.
 
+#![allow(clippy::inline_always, clippy::ref_as_ptr)] // generated `implement` macro items
 use std::cell::RefCell;
 
 use nami::Signal;
@@ -10,6 +11,7 @@ use waterui_graphics::color::ResolvedColor;
 use waterui_layout::StretchAxis;
 use windows_core::{AsImpl, IInspectable, Interface, implement};
 
+#[allow(clippy::wildcard_imports)] // the generated namespace
 use crate::bindings::*;
 
 /// The children of any `Panel` subclass as a mutable vector view.
@@ -65,7 +67,7 @@ where
 unsafe trait IElementAttachments: windows_core::IUnknown {}
 
 /// The per-element bag of things that must die with the element: nami watcher
-/// guards and WinRT event revokers.
+/// guards and `WinRT` event revokers.
 ///
 /// Stored as the element's `FrameworkElement.Tag`; XAML keeps the bag alive
 /// exactly as long as the element.
@@ -118,7 +120,7 @@ pub fn store_watcher_guards(
 }
 
 /// Keeps `revoker` alive for the lifetime of `element`; dropping it
-/// unsubscribes the WinRT event.
+/// unsubscribes the `WinRT` event.
 pub fn store_event_revoker(element: &FrameworkElement, revoker: windows_core::EventRevoker) {
     let attachments = attachments(element)
         .expect("FrameworkElement.Tag must accept the WaterUI attachment object");
@@ -147,7 +149,7 @@ pub fn framework(element: &UIElement) -> FrameworkElement {
         .expect("WaterUI WinUI elements are always FrameworkElements")
 }
 
-/// Converts a resolved WaterUI color to a WinUI `Color`.
+/// Converts a resolved `WaterUI` color to a `WinUI` `Color`.
 #[must_use]
 #[allow(
     clippy::cast_possible_truncation,

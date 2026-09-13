@@ -1,10 +1,11 @@
-//! WinUI hosts for WaterUI layout objects.
+//! `WinUI` hosts for `WaterUI` layout objects.
 
 use std::cell::RefCell;
 use std::rc::Rc;
 
 use waterui_core::layout::Layout;
 
+#[allow(clippy::wildcard_imports)] // the generated namespace
 use crate::bindings::*;
 use crate::component::{LayoutPanel, WinUiSubView};
 

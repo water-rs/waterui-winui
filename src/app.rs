@@ -7,17 +7,25 @@ use executor_core::{LocalExecutor, Task};
 use waterui::app::App;
 
 use crate::app_shim::{create_application, install_xaml_controls_resources};
+#[allow(clippy::wildcard_imports)] // the generated namespace
 use crate::bindings::*;
 use crate::bootstrap::{bootstrap_runtime, initialize_ui_thread};
 use crate::executor::DispatcherQueueExecutor;
 use crate::renderer::WinUiRenderer;
 use crate::window::open_window;
 
-/// Runs a `WaterUI` application on the WinUI backend.
+/// Runs a `WaterUI` application on the `WinUI` backend.
 ///
 /// Bootstraps the Windows App Runtime, initializes a per-monitor-aware STA UI
-/// thread, starts the WinUI `Application` message loop (blocking), and opens
+/// thread, starts the `WinUI` `Application` message loop (blocking), and opens
 /// the app's windows inside `OnLaunched`.
+///
+/// # Panics
+///
+/// # Errors
+///
+/// Returns an error when the Windows App Runtime cannot be bootstrapped, the
+/// UI thread cannot be initialized, or the `WinUI` application fails to start.
 ///
 /// # Panics
 ///

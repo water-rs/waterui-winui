@@ -9,6 +9,7 @@ use waterui_text::styled::{Style, StyledStr};
 use windows_core::Interface;
 
 use crate::bindings::FontWeight as WinUiFontWeight;
+#[allow(clippy::wildcard_imports)] // the generated namespace
 use crate::bindings::*;
 use crate::component::WinUiComponent;
 use crate::executor::enqueue_on_ui_thread;
@@ -157,7 +158,7 @@ fn text_alignment(alignment: HorizontalAlignment) -> TextAlignment {
     }
 }
 
-/// `FontWeight` is a plain `u16` struct; map WaterUI weights to OpenType
+/// `FontWeight` is a plain `u16` struct; map `WaterUI` weights to OpenType
 /// weight values.
 const fn font_weight_value(weight: WaterUiFontWeight) -> u16 {
     match weight {

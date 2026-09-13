@@ -12,6 +12,7 @@ use waterui_form::picker::multi_date::MultiDatePickerConfig;
 use waterui_form::picker::{PickerConfig, PickerItem, PickerStyle};
 use windows_core::Interface;
 
+#[allow(clippy::wildcard_imports)] // the generated namespace
 use crate::bindings::*;
 use crate::component::WinUiComponent;
 use crate::executor::enqueue_on_ui_thread;
@@ -21,8 +22,8 @@ use crate::util::{
     subscribe_then_get,
 };
 
-/// Ticks between the WinRT epoch (1601-01-01 UTC) and the Unix epoch.
-const WINRT_UNIX_EPOCH_OFFSET: i64 = 11_644_473_600_000_000_0 / 10;
+/// Ticks between the `WinRT` epoch (1601-01-01 UTC) and the Unix epoch.
+const WINRT_UNIX_EPOCH_OFFSET: i64 = 116_444_736_000_000_000 / 10;
 
 /// jiff civil `DateTime` → `windows_time::DateTime`, interpreting the civil
 /// value in the system time zone (matching GTK's `from_local`).
@@ -31,7 +32,8 @@ fn to_winrt_datetime(value: DateTime) -> windows_time::DateTime {
         .to_zoned(jiff_tz())
         .expect("civil DateTime must resolve in the system time zone")
         .timestamp();
-    let unix_100ns = timestamp.as_nanosecond() as i64 / 100;
+    let unix_100ns =
+        i64::try_from(timestamp.as_nanosecond()).expect("timestamp out of i64 range") / 100;
     windows_time::DateTime {
         universal_time: unix_100ns + WINRT_UNIX_EPOCH_OFFSET,
     }
@@ -107,6 +109,7 @@ impl WinUiComponent for Native<PickerConfig> {
     }
 }
 
+#[allow(clippy::too_many_lines)] // flat registration/wiring code
 fn render_combo_box(
     config: &PickerConfig,
     ids: &Rc<RefCell<Vec<Id>>>,
@@ -138,7 +141,7 @@ fn render_combo_box(
             .borrow()
             .iter()
             .position(|id| *id == current)
-            .map_or(-1, |index| index as i32);
+            .map_or(-1, |index| i32::try_from(index).expect("index fits i32"));
         combo
             .cast::<Selector>()
             .expect("ComboBox is a Selector")
@@ -166,7 +169,10 @@ fn render_combo_box(
                 .expect("Selector::SelectedIndex");
             let ids_ref = ids_for_event.borrow();
             if index >= 0
-                && let Some(id) = ids_ref.iter().nth(index as usize).copied()
+                && let Some(id) = ids_ref
+                    .as_slice()
+                    .get(usize::try_from(index).expect("index non-negative"))
+                    .copied()
                 && selection.get() != id
             {
                 selection.set(id);
@@ -196,7 +202,7 @@ fn render_combo_box(
                         .borrow()
                         .iter()
                         .position(|id| *id == value)
-                        .map_or(-1, |index| index as i32);
+                        .map_or(-1, |index| i32::try_from(index).expect("index fits i32"));
                     if selector.SelectedIndex().expect("SelectedIndex") != index {
                         selector.SetSelectedIndex(index).expect("SetSelectedIndex");
                     }
@@ -278,7 +284,7 @@ fn render_radio_buttons(
             .borrow()
             .iter()
             .position(|id| *id == current)
-            .map_or(-1, |index| index as i32);
+            .map_or(-1, |index| i32::try_from(index).expect("index fits i32"));
         radio
             .SetSelectedIndex(index)
             .expect("RadioButtons::SetSelectedIndex");
@@ -297,7 +303,10 @@ fn render_radio_buttons(
             let index = radio.SelectedIndex().expect("RadioButtons::SelectedIndex");
             let ids_ref = ids_for_event.borrow();
             if index >= 0
-                && let Some(id) = ids_ref.iter().nth(index as usize).copied()
+                && let Some(id) = ids_ref
+                    .as_slice()
+                    .get(usize::try_from(index).expect("index non-negative"))
+                    .copied()
                 && selection.get() != id
             {
                 selection.set(id);
@@ -320,7 +329,7 @@ fn render_radio_buttons(
                     .borrow()
                     .iter()
                     .position(|id| *id == value)
-                    .map_or(-1, |index| index as i32);
+                    .map_or(-1, |index| i32::try_from(index).expect("index fits i32"));
                 if radio.SelectedIndex().expect("SelectedIndex") != index {
                     radio.SetSelectedIndex(index).expect("SetSelectedIndex");
                 }
@@ -366,7 +375,7 @@ fn render_selector_bar(
         let current = config.selection.get();
         if let Some(index) = ids.borrow().iter().position(|id| *id == current) {
             let selected = items_collection
-                .GetAt(index as u32)
+                .GetAt(u32::try_from(index).expect("index fits u32"))
                 .expect("IVector::GetAt");
             bar.SetSelectedItem(&selected)
                 .expect("SelectorBar::SetSelectedItem");
@@ -392,7 +401,7 @@ fn render_selector_bar(
                 .then_some(index as usize);
             let ids_ref = ids_for_event.borrow();
             if let Some(index) = found
-                && let Some(id) = ids_ref.iter().nth(index).copied()
+                && let Some(id) = ids_ref.as_slice().get(index).copied()
                 && selection.get() != id
             {
                 selection.set(id);
@@ -415,7 +424,9 @@ fn render_selector_bar(
             {
                 let items: windows_collections::IVector<SelectorBarItem> =
                     crate::util::vector(&bar.Items().expect("SelectorBar::Items"));
-                let item = items.GetAt(index as u32).expect("IVector::GetAt");
+                let item = items
+                    .GetAt(u32::try_from(index).expect("index fits u32"))
+                    .expect("IVector::GetAt");
                 bar.SetSelectedItem(&item).expect("SetSelectedItem");
             }
         });
@@ -432,6 +443,7 @@ fn render_selector_bar(
 impl WinUiComponent for Native<DatePickerConfig> {
     /// Renders a `CalendarDatePicker`, plus a `TimePicker` when the picker
     /// type includes a time component.
+    #[allow(clippy::too_many_lines)] // flat registration/wiring code
     fn render(self, env: &Environment, renderer: &mut WinUiRenderer) -> UIElement {
         let config = self.into_inner();
         let wants_time = !matches!(config.ty, DatePickerType::Date);
@@ -527,9 +539,10 @@ impl WinUiComponent for Native<DatePickerConfig> {
                         let args = args.ok().expect("SelectedTimeChanged args");
                         let new_time = args.NewTime().expect("NewTime");
                         let total_seconds = new_time.duration / 10_000_000;
-                        let hour = (total_seconds / 3600) as i8;
-                        let minute = ((total_seconds % 3600) / 60) as i8;
-                        let second = (total_seconds % 60) as i8;
+                        let hour = i8::try_from(total_seconds / 3600).expect("hour fits i8");
+                        let minute =
+                            i8::try_from((total_seconds % 3600) / 60).expect("minute fits i8");
+                        let second = i8::try_from(total_seconds % 60).expect("second fits i8");
                         let current = value.get();
                         value.set(current.date().at(hour, minute, second, 0));
                     })
@@ -674,6 +687,7 @@ impl WinUiComponent for Native<MultiDatePickerConfig> {
 
 impl WinUiComponent for Native<ColorPickerConfig> {
     /// Renders a `DropDownButton` whose flyout hosts a `ColorPicker`.
+    #[allow(clippy::too_many_lines)] // flat registration/wiring code
     fn render(self, env: &Environment, renderer: &mut WinUiRenderer) -> UIElement {
         let config = self.into_inner();
 

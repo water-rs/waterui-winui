@@ -1,4 +1,4 @@
-//! Smoke test for `waterui-winui`: opens a real WinUI window, verifies that the
+//! Smoke test for `waterui-winui`: opens a real `WinUI` window, verifies that the
 //! content view renders (the `Appear` lifecycle hook is the readiness signal),
 //! then closes the window through `WindowState::Closed` so the process exits
 //! with a successful status.

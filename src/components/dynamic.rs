@@ -4,6 +4,7 @@ use waterui_core::dynamic::Dynamic;
 use waterui_core::{Environment, Native};
 use windows_core::Interface;
 
+#[allow(clippy::wildcard_imports)] // the generated namespace
 use crate::bindings::*;
 use crate::component::WinUiComponent;
 use crate::executor::enqueue_on_ui_thread;

@@ -11,6 +11,7 @@ use waterui_graphics::ResolvedGradient;
 #[cfg(feature = "gpu")]
 use waterui_graphics::gpu_surface::GpuSurface;
 
+#[allow(clippy::wildcard_imports)] // the generated namespace
 use crate::bindings::*;
 use crate::component::WinUiComponent;
 use crate::executor::enqueue_on_ui_thread;
@@ -66,7 +67,7 @@ impl WinUiComponent for Native<ResolvedColor> {
 impl WinUiComponent for Native<ResolvedGradient> {
     /// Fills a `Border` with a `LinearGradientBrush` or `RadialGradientBrush`.
     ///
-    /// Angular and mesh gradients have no WinUI brush equivalent; they require
+    /// Angular and mesh gradients have no `WinUI` brush equivalent; they require
     /// the GPU (filtrate) path and panic rather than silently degrading.
     fn render(self, _env: &Environment, _renderer: &mut WinUiRenderer) -> UIElement {
         use waterui_graphics::GradientType;
@@ -198,9 +199,9 @@ impl WinUiComponent for Native<ResolvedShape> {
     }
 }
 
-/// Builds a `PathGeometry` from WaterUI path commands.
+/// Builds a `PathGeometry` from `WaterUI` path commands.
 ///
-/// WaterUI path coordinates are normalized to the shape's bounds (0.0–1.0);
+/// `WaterUI` path coordinates are normalized to the shape's bounds (0.0–1.0);
 /// the `Path` is stretched to `Fill`, so the geometry is emitted in the unit
 /// square and XAML scales it to the arranged size.
 fn build_path_geometry(shape: &ResolvedShape) -> PathGeometry {
@@ -325,8 +326,9 @@ impl WinUiComponent for Native<SystemIcon> {
     }
 }
 
-/// SF Symbol name → WinUI `Symbol` glyph, for the names WaterUI's
+/// SF Symbol name → `WinUI` `Symbol` glyph, for the names `WaterUI`'s
 /// `system_icon::*` constructors produce.
+#[allow(clippy::match_same_arms)] // a lookup table: distinct SF names share glyphs
 pub(crate) fn segoe_symbol_for(name: &str) -> Option<Symbol> {
     Some(match name {
         "house" | "house.fill" => Symbol::Home,

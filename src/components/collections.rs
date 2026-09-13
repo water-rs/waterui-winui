@@ -11,13 +11,14 @@ use waterui_core::{Environment, Native};
 use waterui_navigation::tab::{NativeTabStyle, TabIcon, TabsLayout};
 use windows_core::Interface;
 
+#[allow(clippy::wildcard_imports)] // the generated namespace
 use crate::bindings::*;
 use crate::component::WinUiComponent;
 use crate::executor::enqueue_on_ui_thread;
 use crate::renderer::WinUiRenderer;
 use crate::util::{framework, store_event_revoker, store_watcher_guards};
 
-/// Reconciles a WinUI `ItemCollection` against WaterUI's stable row IDs.
+/// Reconciles a `WinUI` `ItemCollection` against `WaterUI`'s stable row IDs.
 ///
 /// Mirrors the GTK `KeyedModel`: rows that moved keep their existing element;
 /// only insertions render new views, and trailing removals are dropped.
@@ -45,7 +46,7 @@ impl KeyedItems {
         assert_eq!(unique.len(), ids.len(), "collection IDs must be unique");
 
         for (target, id) in ids.iter().copied().enumerate() {
-            if self.ids.iter().nth(target) == Some(&id) {
+            if self.ids.as_slice().get(target) == Some(&id) {
                 continue;
             }
             if let Some(source) = self
@@ -353,7 +354,10 @@ fn render_tab_view(
             let tab_view = sender.cast::<TabView>().expect("sender is the TabView");
             let index = tab_view.SelectedIndex().expect("TabView::SelectedIndex");
             if index >= 0
-                && let Some(id) = ids_for_event.iter().nth(index as usize).copied()
+                && let Some(id) = ids_for_event
+                    .as_slice()
+                    .get(usize::try_from(index).expect("index non-negative"))
+                    .copied()
                 && selection.get() != id
             {
                 selection.set(id);
@@ -386,6 +390,7 @@ fn render_tab_view(
     element.cast().expect("FrameworkElement is a UIElement")
 }
 
+#[allow(clippy::too_many_lines)] // flat registration/wiring code
 fn render_sidebar_tabs(
     layout: TabsLayout,
     env: &Environment,
@@ -481,7 +486,7 @@ fn render_sidebar_tabs(
             {
                 let index = index as usize;
                 show_for_event(index);
-                if let Some(id) = ids_for_event.iter().nth(index).copied()
+                if let Some(id) = ids_for_event.as_slice().get(index).copied()
                     && selection.get() != id
                 {
                     selection.set(id);

@@ -1,9 +1,10 @@
-//! `waterui::window::Window` → WinUI `Window` integration.
+//! `waterui::window::Window` → `WinUI` `Window` integration.
 
 use waterui::window::{Window as WaterUiWindow, WindowBackground, WindowState, WindowStyle};
 use waterui_core::Environment;
 use windows_core::Interface;
 
+#[allow(clippy::wildcard_imports)] // the generated namespace
 use crate::bindings::*;
 use crate::executor::enqueue_on_ui_thread;
 use crate::renderer::WinUiRenderer;
@@ -11,7 +12,7 @@ use crate::util::{
     framework, solid_brush, store_event_revoker, store_watcher_guards, subscribe_then_get,
 };
 
-/// Opens one WinUI `Window` for a `WaterUI` window description and keeps its
+/// Opens one `WinUI` `Window` for a `WaterUI` window description and keeps its
 /// reactive state (title, open state, background) synchronized.
 ///
 /// The returned window owns every watcher and event subscription through the
@@ -120,7 +121,7 @@ pub fn open_window(
 /// the background.
 fn root_cast_panel(content: &UIElement) -> windows_core::Result<Panel> {
     content.cast::<Panel>().inspect_err(|_| {
-        tracing::error!("window content root is not a Panel; background color cannot apply")
+        tracing::error!("window content root is not a Panel; background color cannot apply");
     })
 }
 
