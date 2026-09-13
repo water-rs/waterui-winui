@@ -219,13 +219,15 @@ fn apply_drop_shadow(element: &UIElement, shadow: &Shadow, env: &Environment) {
     ElementCompositionPreview::SetElementChildVisual(element, &sprite)
         .expect("SetElementChildVisual");
 
-    let weak = drop.downgrade().expect("weak DropShadow");
+    // Composition objects do not implement IWeakReferenceSource, so the
+    // watcher holds the shadow strongly; the guard lives on the element and
+    // the shadow must outlive it anyway — there is no cycle to break.
+    let watched = drop.clone();
     let (initial, guard) = subscribe_then_get(&shadow.color.resolve(env), move |ctx| {
         let resolved = ctx.into_value();
-        if let Some(drop) = weak.upgrade() {
-            drop.SetColor(resolved_color_to_winui(&resolved))
-                .expect("DropShadow::SetColor");
-        }
+        watched
+            .SetColor(resolved_color_to_winui(&resolved))
+            .expect("DropShadow::SetColor");
     });
     drop.SetColor(resolved_color_to_winui(&initial))
         .expect("DropShadow::SetColor");
