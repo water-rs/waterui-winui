@@ -122,10 +122,10 @@ impl WinUiComponent for Native<ResolvedGradient> {
                     .expect("RadialGradientBrush::SetRadiusY");
                 append_gradient_stops(
                     &brush
-                        .cast::<IGradientBrush>()
-                        .expect("RadialGradientBrush is an IGradientBrush")
+                        .cast::<IRadialGradientBrush>()
+                        .expect("RadialGradientBrush is an IRadialGradientBrush")
                         .GradientStops()
-                        .expect("IGradientBrush::GradientStops"),
+                        .expect("IRadialGradientBrush::GradientStops"),
                     &gradient.stops,
                 );
                 brush.cast().expect("RadialGradientBrush is a Brush")
@@ -140,9 +140,12 @@ impl WinUiComponent for Native<ResolvedGradient> {
     }
 }
 
+/// `GradientStops` is `GradientStopCollection` on `IGradientBrush` but
+/// `IObservableVector<GradientStop>` on `IRadialGradientBrush`; both are
+/// `IVector<GradientStop>` at the ABI.
 #[cfg(feature = "gpu")]
-fn append_gradient_stops(
-    stops: &GradientStopCollection,
+fn append_gradient_stops<C: Interface>(
+    stops: &C,
     gradient_stops: &[waterui_graphics::ResolvedGradientStop],
 ) {
     let vector = crate::util::vector::<_, GradientStop>(stops);
