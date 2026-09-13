@@ -223,7 +223,13 @@ $patchSection
             -StdoutLog "$prefix.stdout.log" -StderrLog "$prefix.stderr.log" `
             -WindowTimeoutSec 45 -PaintTimeoutSec 45
         $status = if ($r.Painted) { 'painted' } else { 'window shown, uniform pixels' }
-        if (-not $r.Painted) { Write-Host "::warning::$($ex.Id): no painted content detected" }
+        if (-not $r.Painted) {
+            Write-Host "::warning::$($ex.Id): no painted content detected"
+            if ($r.Diagnostics) {
+                Write-Host "$($ex.Id): process windows: $($r.Diagnostics)"
+                $status = "$status ($($r.Diagnostics -replace '\s+', ' ' -replace '\|', '/'))"
+            }
+        }
         [pscustomobject]@{ Example = $ex.Id; Result = $status; Title = $r.Title }
     } catch {
         $msg = "$_" -replace '\s+', ' ' -replace '\|', '/'
