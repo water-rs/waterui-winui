@@ -17096,6 +17096,17 @@ impl IItemsRepeater {
             .ok()
         }
     }
+    pub(crate) fn TryGetElement(&self, index: i32) -> windows_core::Result<UIElement> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).TryGetElement)(
+                windows_core::Interface::as_raw(self),
+                index,
+                &mut result__,
+            )
+            .and_then(|| windows_core::imp::Type::from_abi(result__))
+        }
+    }
     pub(crate) fn GetOrCreateElement(&self, index: i32) -> windows_core::Result<UIElement> {
         unsafe {
             let mut result__ = core::mem::zeroed();
@@ -17131,7 +17142,11 @@ pub struct IItemsRepeater_Vtbl {
     Background: usize,
     SetBackground: usize,
     GetElementIndex: usize,
-    TryGetElement: usize,
+    pub TryGetElement: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        i32,
+        *mut *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
     pub GetOrCreateElement: unsafe extern "system" fn(
         *mut core::ffi::c_void,
         i32,
