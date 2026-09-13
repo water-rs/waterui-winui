@@ -1,0 +1,75 @@
+[workspace]
+resolver = "3"
+members = [".", "tools/bindgen"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/water-rs/waterui-winui"
+rust-version = "1.89"
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "warn"
+unused_qualifications = "warn"
+
+[workspace.lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+
+[package]
+name = "waterui-winui"
+description = "Native WinUI 3 backend for WaterUI"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+default = ["gpu"]
+gpu = ["waterui-graphics/gpu"]
+self-contained = ["dep:windows-reactor-setup"]
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-core = "0.100"
+windows-collections = { version = "0.100", features = ["std"] }
+windows-future = "0.100"
+windows-numerics = "0.100"
+windows-reference = { version = "0.100", features = ["std"] }
+windows-time = "0.100"
+send_wrapper = "0.6"
+waterui = { version = "=0.3.0", default-features = false }
+waterui-core = "=0.3.0"
+waterui-backend-core = { version = "=0.1.0", default-features = false, features = [
+    "widgets",
+    "gestures",
+] }
+waterui-str = "=0.3.0"
+waterui-text = "=0.3.0"
+waterui-controls = "=0.3.0"
+waterui-form = "=0.3.0"
+waterui-layout = "=0.3.0"
+waterui-navigation = "=0.3.0"
+waterui-graphics = { version = "=0.3.0", default-features = false }
+waterui-icon = "=0.3.0"
+waterui-shape = { version = "=0.1.0", default-features = false }
+waterui-locale = "=0.1.0"
+nami = "=0.11.2"
+jiff = "0.2"
+executor-core = "=0.7.1"
+native-executor = "0.8"
+tracing = "0.1"
+
+[target.'cfg(target_os = "windows")'.build-dependencies]
+windows-reactor-setup = { version = "0.100", optional = true }
+
+# `wgpu-hal` 29.x compiles its D3D12 backend against `windows` 0.62 while
+# `gpu-allocator` 0.28 declares a `>=0.53, <=0.62` range that the resolver can
+# satisfy with an older `windows` already in the graph, producing mismatched
+# COM types inside `wgpu-hal`. The vendored copy only narrows that range to
+# the version `wgpu-hal` itself uses.
+[patch.crates-io]
+gpu-allocator = { path = "vendor/gpu-allocator" }

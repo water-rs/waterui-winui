@@ -1,0 +1,275 @@
+Microsoft::UI::Composition::ICompositionObject::get_Compositor
+Microsoft::UI::Dispatching::DispatcherQueue::GetForCurrentThread
+Microsoft::UI::Dispatching::DispatcherQueueHandler
+Microsoft::UI::Dispatching::DispatcherQueuePriority
+Microsoft::UI::Dispatching::IDispatcherQueue::CreateTimer
+Microsoft::UI::Dispatching::IDispatcherQueue::{TryEnqueue, TryEnqueueWithPriority, CreateTimer}
+Microsoft::UI::Dispatching::IDispatcherQueueTimer::{put_Interval, put_IsRepeating, add_Tick, remove_Tick, Start, Stop}
+Microsoft::UI::Input::IPointerPoint::{get_Position, get_Properties}
+Microsoft::UI::Input::IPointerPointProperties::{get_IsLeftButtonPressed, get_IsMiddleButtonPressed, get_IsRightButtonPressed}
+Microsoft::UI::Input::InputKeyboardSource::{add_KeyDown, remove_KeyDown, GetForIsland}
+Microsoft::UI::Xaml::UIElement::get_XamlRoot
+Microsoft::UI::Xaml::Window::get_Content
+Microsoft::UI::Xaml::XamlRoot::get_ContentIsland
+Microsoft::UI::Text::ITextDocument::{GetText, SetText}
+Microsoft::UI::Text::TextGetOptions::None
+Microsoft::UI::Text::TextSetOptions::None
+Microsoft::UI::Windowing::IAppWindow2::{get_ClientSize, ResizeClient}
+Microsoft::UI::Windowing::IAppWindow::{get_TitleBar, get_Presenter, get_Size, SetIcon}
+Microsoft::UI::Windowing::IAppWindowTitleBar2::put_PreferredHeightOption
+Microsoft::UI::Windowing::IAppWindowTitleBar3::put_PreferredTheme
+Microsoft::UI::Windowing::IOverlappedPresenter3::{put_PreferredMinimumWidth, put_PreferredMinimumHeight, put_PreferredMaximumWidth, put_PreferredMaximumHeight}
+Microsoft::UI::Windowing::TitleBarHeightOption::{Standard, Tall}
+Microsoft::UI::Windowing::TitleBarTheme::{UseDefaultAppMode, Light, Dark}
+Microsoft::UI::Xaml::Application::{CreateInstance, Current, Start}
+Microsoft::UI::Xaml::ApplicationInitializationCallback
+Microsoft::UI::Xaml::Automation::AutomationProperties::{SetAccessibilityView, SetAutomationId, SetFullDescription, SetHeadingLevel, SetHelpText, SetIsDataValidForForm, SetIsDialog, SetIsPeripheral, SetIsRequiredForForm, SetItemStatus, SetItemType, SetLabeledBy, SetLandmarkType, SetLevel, SetLiveSetting, SetLocalizedControlType, SetLocalizedLandmarkType, SetName, SetPositionInSet, SetSizeOfSet}
+Microsoft::UI::Xaml::Controls::Canvas::{LeftProperty, SetLeft, SetTop, TopProperty}
+Microsoft::UI::Xaml::Controls::ColumnDefinition::CreateInstance
+Microsoft::UI::Xaml::Controls::ColumnDefinitionCollection::{}
+Microsoft::UI::Xaml::Controls::CommandBarFlyout::CreateInstance
+Microsoft::UI::Xaml::Controls::ContentControl::CreateInstance
+Microsoft::UI::Xaml::Controls::Flyout::CreateInstance
+Microsoft::UI::Xaml::Controls::Grid::{ColumnProperty, ColumnSpanProperty, RowProperty, RowSpanProperty, SetColumn, SetColumnSpan, SetRow, SetRowSpan}
+Microsoft::UI::Xaml::Controls::IButton::put_Flyout
+Microsoft::UI::Xaml::Controls::ICalendarDatePicker::put_Date
+Microsoft::UI::Xaml::Controls::IColumnDefinition::{get_Width, put_Width}
+Microsoft::UI::Xaml::Controls::ICommandBarFlyout::{get_PrimaryCommands, get_SecondaryCommands}
+Microsoft::UI::Xaml::Controls::IContentDialog::{Hide, ShowAsync}
+Microsoft::UI::Xaml::Controls::IDatePicker::put_SelectedDate
+Microsoft::UI::Xaml::Controls::IFlyout::put_Content
+Microsoft::UI::Xaml::Controls::IGrid::{get_ColumnDefinitions, get_RowDefinitions}
+Microsoft::UI::Xaml::Controls::IItemsRepeater::{GetOrCreateElement, put_ItemsSource, put_ItemTemplate}
+Microsoft::UI::Xaml::Controls::IMenuBarItem::get_Items
+Microsoft::UI::Xaml::Controls::IMenuFlyout::get_Items
+Microsoft::UI::Xaml::Controls::IMenuFlyoutItem::{put_Text, add_Click, remove_Click}
+Microsoft::UI::Xaml::Controls::IMenuFlyoutSubItem::{get_Items, put_Text}
+Microsoft::UI::Xaml::Controls::INumberBox::get_Value
+Microsoft::UI::Xaml::Controls::IRichEditBox::{get_Document, get_IsReadOnly}
+Microsoft::UI::Xaml::Controls::IRichTextBlock::get_Blocks
+Microsoft::UI::Xaml::Controls::IRowDefinition::{get_Height, put_Height}
+Microsoft::UI::Xaml::Controls::ISplitButton::put_Flyout
+Microsoft::UI::Xaml::Controls::ISplitView::get_IsPaneOpen
+Microsoft::UI::Xaml::Controls::ISwapChainPanel::{get_CompositionScaleX, get_CompositionScaleY, add_CompositionScaleChanged, remove_CompositionScaleChanged}
+Microsoft::UI::Xaml::Controls::ITeachingTip::put_IsOpen
+Microsoft::UI::Xaml::Controls::ITimePicker::put_SelectedTime
+Microsoft::UI::Xaml::Controls::ITreeView::get_RootNodes
+Microsoft::UI::Xaml::Controls::ITreeViewNode::{get_Children, get_Content, put_Content, put_IsExpanded}
+Microsoft::UI::Xaml::Controls::ItemsRepeater::CreateInstance
+Microsoft::UI::Xaml::Controls::MenuFlyout::CreateInstance
+Microsoft::UI::Xaml::Controls::MenuFlyoutItem::CreateInstance
+Microsoft::UI::Xaml::Controls::MenuFlyoutSeparator::CreateInstance
+Microsoft::UI::Xaml::Controls::MenuFlyoutSubItem::CreateInstance
+Microsoft::UI::Xaml::Controls::Primitives::FlyoutPlacementMode
+Microsoft::UI::Xaml::Controls::Primitives::IButtonBase::{add_Click, remove_Click}
+Microsoft::UI::Xaml::Controls::Primitives::IFlyoutBase::put_Placement
+Microsoft::UI::Xaml::Controls::Primitives::IRangeBase::get_Value
+Microsoft::UI::Xaml::Controls::Primitives::IToggleButton::get_IsChecked
+Microsoft::UI::Xaml::Controls::Primitives::PlacementMode
+Microsoft::UI::Xaml::Controls::RelativePanel::{AlignBottomWithPanelProperty, AlignHorizontalCenterWithPanelProperty, AlignLeftWithPanelProperty, AlignRightWithPanelProperty, AlignTopWithPanelProperty, AlignVerticalCenterWithPanelProperty, SetAlignBottomWithPanel, SetAlignHorizontalCenterWithPanel, SetAlignLeftWithPanel, SetAlignRightWithPanel, SetAlignTopWithPanel, SetAlignVerticalCenterWithPanel}
+Microsoft::UI::Xaml::Controls::RowDefinition::CreateInstance
+Microsoft::UI::Xaml::Controls::RowDefinitionCollection::{}
+Microsoft::UI::Xaml::Controls::ToolTipService::{SetPlacement, SetToolTip}
+Microsoft::UI::Xaml::Controls::TreeViewNode::CreateInstance
+Microsoft::UI::Xaml::Controls::XamlControlsResources::CreateInstance
+Microsoft::UI::Xaml::Documents::Block::{}
+Microsoft::UI::Xaml::Documents::Hyperlink::CreateInstance
+Microsoft::UI::Xaml::Documents::IHyperlink::put_NavigateUri
+Microsoft::UI::Xaml::Documents::IParagraph::get_Inlines
+Microsoft::UI::Xaml::Documents::IRun::put_Text
+Microsoft::UI::Xaml::Documents::ISpan::get_Inlines
+Microsoft::UI::Xaml::Documents::ITextElement::{put_FontStyle, put_FontWeight}
+Microsoft::UI::Xaml::Documents::Inline::{}
+Microsoft::UI::Xaml::Documents::LineBreak::CreateInstance
+Microsoft::UI::Xaml::Documents::Paragraph::CreateInstance
+Microsoft::UI::Xaml::Documents::Run::CreateInstance
+Microsoft::UI::Xaml::FocusState
+Microsoft::UI::Xaml::GridLength
+Microsoft::UI::Xaml::GridUnitType
+Microsoft::UI::Xaml::Hosting::ElementCompositionPreview::{GetElementVisual, SetElementChildVisual}
+Microsoft::UI::Xaml::IApplication::get_Resources
+Microsoft::UI::Xaml::IApplicationOverrides::{}
+Microsoft::UI::Xaml::IDependencyObject::ClearValue
+Microsoft::UI::Xaml::IElementFactory::{}
+Microsoft::UI::Xaml::IElementFactoryGetArgs::get_Data
+Microsoft::UI::Xaml::IElementFactoryRecycleArgs::get_Element
+Microsoft::UI::Xaml::IFrameworkElement::{get_ActualTheme, get_Resources, put_RequestedTheme, put_Width, put_Height, put_MinWidth, put_MaxWidth, put_MinHeight, put_MaxHeight, put_HorizontalAlignment, put_VerticalAlignment, put_Margin}
+Microsoft::UI::Xaml::IFrameworkElement::{get_IsLoaded, get_ActualWidth, get_ActualHeight, add_ActualThemeChanged, remove_ActualThemeChanged, add_SizeChanged, remove_SizeChanged, add_Loaded, remove_Loaded}
+Microsoft::UI::Xaml::IFrameworkElement::put_Style
+Microsoft::UI::Xaml::IFrameworkElementStatics::{get_WidthProperty, get_HeightProperty, get_MinWidthProperty, get_MaxWidthProperty, get_MinHeightProperty, get_MaxHeightProperty, get_HorizontalAlignmentProperty, get_VerticalAlignmentProperty, get_MarginProperty}
+Microsoft::UI::Xaml::IResourceDictionary::get_MergedDictionaries
+Microsoft::UI::Xaml::ISizeChangedEventArgs::get_NewSize
+Microsoft::UI::Xaml::IUIElement::{CapturePointer, Focus, ReleasePointerCapture, ReleasePointerCaptures, get_XamlRoot, put_XamlRoot, get_FocusState, put_Opacity, StartBringIntoView}
+Microsoft::UI::Xaml::IUIElement::{add_PointerEntered, add_PointerExited, add_PointerMoved, add_PointerPressed, add_PointerReleased, remove_PointerEntered, remove_PointerExited, remove_PointerMoved, remove_PointerPressed, remove_PointerReleased}
+Microsoft::UI::Xaml::IUIElementStatics::get_OpacityProperty
+Microsoft::UI::Xaml::IWindow2::{get_AppWindow, put_SystemBackdrop}
+Microsoft::UI::Xaml::IWindow::{Activate, Close, Closed, put_Content, put_Title}
+Microsoft::UI::Xaml::IWindow::{put_ExtendsContentIntoTitleBar, SetTitleBar}
+Microsoft::UI::Xaml::IXamlRoot::{get_RasterizationScale, add_Changed, remove_Changed}
+Microsoft::UI::Xaml::Input::IPointerRoutedEventArgs::{GetCurrentPoint, get_Pointer}
+Microsoft::UI::Xaml::Input::IKeyRoutedEventArgs::{get_Key, get_OriginalKey, get_KeyStatus, put_Handled}
+Microsoft::UI::Xaml::Input::ICharacterReceivedRoutedEventArgs::{get_Character, get_KeyStatus, put_Handled}
+Microsoft::UI::Xaml::IRoutedEventArgs::get_OriginalSource
+Microsoft::UI::Xaml::LaunchActivatedEventArgs
+Microsoft::UI::Xaml::Markup::IXamlMetadataProvider
+Microsoft::UI::Xaml::Markup::IXamlType::{}
+Microsoft::UI::Xaml::Markup::XamlBindingHelper::ConvertValue
+Microsoft::UI::Xaml::Markup::XamlReader::Load
+Microsoft::UI::Xaml::Markup::XmlnsDefinition
+Microsoft::UI::Xaml::Media::CompositionTarget::Rendering
+Microsoft::UI::Xaml::Media::DesktopAcrylicBackdrop::CreateInstance
+Microsoft::UI::Xaml::Media::IMicaBackdrop::put_Kind
+Microsoft::UI::Xaml::Media::MicaBackdrop::CreateInstance
+Microsoft::UI::Xaml::Style
+Microsoft::UI::Xaml::UIElement::{}
+Microsoft::UI::Xaml::Window::CreateInstance
+Microsoft::UI::Xaml::XamlTypeInfo::XamlControlsXamlMetaDataProvider::CreateInstance
+Windows::Graphics::SizeInt32
+Windows::UI::Text::FontStyle
+Windows::UI::Text::FontWeight
+Windows::UI::Xaml::Interop::TypeName
+Windows::Win32::APPMODEL_ERROR_NO_PACKAGE
+Windows::Win32::AddPackageDependency
+Windows::Win32::COINIT_APARTMENTTHREADED
+Windows::Win32::CoInitializeEx
+Windows::Win32::DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2
+Windows::Win32::E_FAIL
+Windows::Win32::ERROR_INSUFFICIENT_BUFFER
+Windows::Win32::GetCurrentPackageFullName
+Windows::Win32::GetDpiForWindow
+Windows::Win32::GetKeyboardState
+Windows::Win32::GetProcessHeap
+Windows::Win32::HeapFree
+Windows::Win32::IDYES
+Windows::Win32::MB_ICONERROR
+Windows::Win32::MB_YESNO
+Windows::Win32::MessageBoxW
+Windows::Win32::PACKAGE_VERSION
+Windows::Win32::PackageDependencyProcessorArchitectures::PackageDependencyProcessorArchitectures_X86
+Windows::Win32::PackageDependencyProcessorArchitectures::PackageDependencyProcessorArchitectures_X64
+Windows::Win32::PackageDependencyProcessorArchitectures::PackageDependencyProcessorArchitectures_Arm64
+Windows::Win32::PackageDependencyProcessorArchitectures::PackageDependencyProcessorArchitectures_Arm
+Windows::Win32::PackageDependencyProcessorArchitectures::PackageDependencyProcessorArchitectures_Neutral
+Windows::Win32::PackageDependencyProcessorArchitectures::PackageDependencyProcessorArchitectures_None
+Windows::Win32::PostQuitMessage
+Windows::Win32::RPC_E_CHANGED_MODE
+Windows::Win32::SetProcessDpiAwarenessContext
+Windows::Win32::ShellExecuteW
+Windows::Win32::STATEREPOSITORY_E_DEPENDENCY_NOT_RESOLVED
+Windows::Win32::SW_SHOWNORMAL
+Windows::Win32::TryCreatePackageDependency
+extras::ISwapChainPanelNative::SetSwapChain
+extras::IWindowNative::get_WindowHandle
+extras::WINDOWSAPPSDK_RUNTIME_VERSION_UINT64
+extras::WINDOWSAPPSDK_RUNTIME_VERSION_MAJOR
+extras::WINDOWSAPPSDK_RUNTIME_VERSION_MINOR
+extras::WINDOWSAPPSDK_RUNTIME_VERSION_BUILD
+extras::WINDOWSAPPSDK_RUNTIME_VERSION_REVISION
+Microsoft::UI::Xaml::IUIElement::{Measure, Arrange, get_DesiredSize, put_Visibility, get_Visibility, put_ContextFlyout, get_ContextFlyout, UpdateLayout}
+Microsoft::UI::Xaml::IUIElementStatics::get_VisibilityProperty
+Microsoft::UI::Xaml::IWindow::{get_Bounds, get_DispatcherQueue}
+Microsoft::UI::Xaml::IXamlRoot::get_Size
+Microsoft::UI::Windowing::IAppWindow::{MoveAndResize, Move, Resize, get_Position, get_Size, Hide, Show, Destroy, SetPresenter}
+Microsoft::UI::Windowing::IAppWindow2::{ResizeClient, get_ClientSize}
+Microsoft::UI::Windowing::OverlappedPresenter::Create
+Microsoft::UI::Windowing::IOverlappedPresenter::SetBorderAndTitleBar
+Microsoft::UI::Xaml::Media::Imaging::RenderTargetBitmap::CreateInstance
+Microsoft::UI::Xaml::Media::Imaging::RenderTargetBitmap::{RenderAsync, GetPixelsAsync}
+Microsoft::UI::Xaml::Markup::XamlReader::Load
+Microsoft::UI::Xaml::RoutedEventHandler
+Microsoft::UI::Xaml::RoutedEventArgs
+Microsoft::UI::Xaml::ExceptionRoutedEventArgs
+Microsoft::UI::Xaml::Input::{PointerEventHandler, PointerRoutedEventArgs, Pointer, GettingFocusEventArgs, LosingFocusEventArgs, ManipulationModes, ManipulationDeltaRoutedEventArgs, ManipulationStartedRoutedEventArgs, ManipulationCompletedRoutedEventArgs, TappedEventHandler, TappedRoutedEventArgs, DoubleTappedEventHandler, DoubleTappedRoutedEventArgs, HoldingEventHandler, HoldingRoutedEventArgs, RightTappedEventHandler, RightTappedRoutedEventArgs}
+Microsoft::UI::Input::{InputCursor, InputSystemCursor, InputSystemCursorShape, PointerUpdateKind, PointerPoint, PointerPointProperties, HoldingState}
+Microsoft::UI::Xaml::Media::CompositeTransform
+Microsoft::UI::Xaml::{DragEventHandler, DragStartingEventArgs, DropCompletedEventArgs, DragUI, DragUIOverride, DragOperationDeferral, DragEventArgs}
+Microsoft::UI::Xaml::IUIElement::{add_ContextRequested, remove_ContextRequested, add_ContextCanceled, remove_ContextCanceled, add_DragStarting, remove_DragStarting, add_DropCompleted, remove_DropCompleted, put_CanDrag, put_ManipulationMode, add_ManipulationDelta, remove_ManipulationDelta, add_ManipulationStarted, remove_ManipulationStarted, add_ManipulationCompleted, remove_ManipulationCompleted, add_Tapped, remove_Tapped, add_DoubleTapped, remove_DoubleTapped, add_RightTapped, remove_RightTapped, add_Holding, remove_Holding, get_PointerCaptures}
+Windows::ApplicationModel::DataTransfer::{DataPackage, DataPackageView, StandardDataFormats, DataPackageOperation}
+Windows::ApplicationModel::DataTransfer::IDataPackage::{put_RequestedOperation, SetText}
+Microsoft::UI::Xaml::UIElement::{put_ProtectedCursor, put_Translation, put_Rotation, put_RotationAxis, put_CenterPoint, put_Shadow, get_CenterPoint}
+Microsoft::UI::Composition::{Compositor, DropShadow, SpriteVisual, InsetClip, CompositionGeometricClip, CompositionClip, Visual, CompositionShape, CompositionPathGeometry, CompositionPath, CompositionRoundedRectangleGeometry, CompositionRectangleGeometry, CompositionEllipseGeometry, CompositionLineGeometry, CompositionViewBox, ICompositionSurface, CompositionSurfaceBrush, CompositionBrush, CompositionColorBrush, CompositionEffectBrush, CompositionMaskBrush, CompositionBackdropBrush, CompositionNineGridBrush, CompositionEffectSourceParameter, CompositionScopedBatch, CompositionBatchTypes, CompositionEasingFunction, CubicBezierEasingFunction, LinearEasingFunction, SpringScalarNaturalMotionAnimation, SpringVector3NaturalMotionAnimation, ScalarKeyFrameAnimation, Vector3KeyFrameAnimation, ColorKeyFrameAnimation, ExpressionAnimation, ImplicitAnimationCollection, CompositionAnimationGroup, KeyFrameAnimation, CompositionAnimation, CompositionObject, CompositionPropertySet, VisualCollection, ContainerVisual, ShapeVisual, CompositionShapeCollection}
+Microsoft::UI::Xaml::Hosting::ElementCompositionPreview::{GetElementVisual, SetElementChildVisual, SetIsTranslationEnabled}
+Microsoft::UI::Xaml::Media::ThemeShadow
+Microsoft::UI::Xaml::IUIElement::{put_Shadow, get_Shadow, get_Translation, get_Rotation, get_Scale, put_Scale}
+Microsoft::UI::Composition::ICompositor::{CreateScalarKeyFrameAnimation, CreateVector3KeyFrameAnimation, CreateCubicBezierEasingFunction, CreateLinearEasingFunction, CreateExpressionAnimation, CreateScopedBatch, CreatePropertySet, CreateSpriteVisual, CreateColorBrush, CreateInsetClip, CreateContainerVisual, CreateColorKeyFrameAnimation}
+Microsoft::UI::Composition::ICompositor2::{CreateDropShadow, CreateBackdropBrush, CreateAnimationGroup, CreateImplicitAnimationCollection, CreateMaskBrush, CreateLayerVisual}
+Microsoft::UI::Composition::ICompositor4::{CreateColorGradientStop, CreateLinearGradientBrush, CreateSpringScalarAnimation, CreateSpringVector3Animation}
+Microsoft::UI::Composition::ICompositor5::{CreateEllipseGeometry, CreateRoundedRectangleGeometry, CreateRectangleGeometry, CreateViewBox, CreateShapeVisual}
+Microsoft::UI::Composition::ICompositor6::{CreateGeometricClip, CreateRedirectVisual}
+Microsoft::UI::Composition::ICompositionObject::{get_Compositor, get_Properties, StartAnimation, StopAnimation}
+Microsoft::UI::Composition::ICompositionObject2::{get_ImplicitAnimations, put_ImplicitAnimations, StartAnimationGroup, StopAnimationGroup}
+Microsoft::UI::Composition::ICompositionObject4::TryGetAnimationController
+Microsoft::UI::Composition::ICompositionObject5::StartAnimation
+Microsoft::UI::Composition::IVisual::{put_Offset, put_Size, put_Opacity, put_Clip, put_CenterPoint, put_Scale, put_RotationAngle, put_RotationAngleInDegrees, put_RotationAxis, put_AnchorPoint, put_IsVisible, get_Parent}
+Microsoft::UI::Composition::IVisual2::{put_RelativeOffsetAdjustment, put_RelativeSizeAdjustment}
+Microsoft::UI::Composition::ISpriteVisual::{put_Brush}
+Microsoft::UI::Composition::ISpriteVisual2::{put_Shadow}
+Microsoft::UI::Composition::IDropShadow::{put_Color, put_Offset, put_BlurRadius, put_Opacity}
+Microsoft::UI::Composition::ICompositionGeometricClip::{put_Geometry, put_ViewBox}
+Microsoft::UI::Composition::ICompositionEllipseGeometry::{put_Center, put_Radius}
+Microsoft::UI::Composition::ICompositionRoundedRectangleGeometry::{put_Size, put_Offset, put_CornerRadius}
+Microsoft::UI::Composition::ICompositionRectangleGeometry::{put_Size, put_Offset}
+Microsoft::UI::Composition::ICompositionClip
+Microsoft::UI::Composition::IKeyFrameAnimation::{put_Duration, put_IterationBehavior, put_IterationCount}
+Microsoft::UI::Composition::IScalarKeyFrameAnimation::InsertKeyFrame
+Microsoft::UI::Composition::IVector3KeyFrameAnimation::InsertKeyFrame
+Microsoft::UI::Composition::IColorKeyFrameAnimation::InsertKeyFrame
+Microsoft::UI::Composition::INaturalMotionAnimation::{put_DelayTime}
+Microsoft::UI::Composition::ISpringScalarNaturalMotionAnimation::{put_DampingRatio, put_Period}
+Microsoft::UI::Composition::ISpringVector3NaturalMotionAnimation::{put_DampingRatio, put_Period}
+Microsoft::UI::Composition::ICompositionAnimation::{SetScalarParameter, SetReferenceParameter}
+Microsoft::UI::Composition::ICompositionScopedBatch::{End, add_Completed, remove_Completed}
+Microsoft::UI::Composition::CompositionBatchCompletedEventArgs
+Microsoft::UI::Composition::ICompositionAnimationGroup::{Add}
+Microsoft::UI::Composition::{CompositionDropShadowSourcePolicy, CompositionBatchTypes, AnimationIterationBehavior, AnimationDirection, AnimationStopBehavior, AnimationDelayBehavior, CompositionBackfaceVisibility, CompositionCompositeMode, CompositionBitmapInterpolationMode, CompositionColorSpace, CompositionMappingMode, CompositionGetValueStatus, CompositionBorderMode}
+Microsoft::UI::Input::IInputSystemCursorStatics::Create
+Microsoft::UI::Xaml::IDragStartingEventArgs::{get_Data, put_Cancel, get_AllowedOperations, put_AllowedOperations, GetDeferral, get_DragUI}
+Microsoft::UI::Xaml::IDragEventArgs::{get_DataView, get_Modifiers, put_AcceptedOperation, GetDeferral, GetPosition, get_DragUIOverride}
+Microsoft::UI::Xaml::IDragUI::{SetContentFromDataPackage, SetContentFromBitmapImage}
+Microsoft::UI::Xaml::IDragUIOverride
+Microsoft::UI::Xaml::Media::IThemeShadow::get_Receivers
+Microsoft::UI::Xaml::Media::Shadow
+Windows::Foundation::TypedEventHandler
+Microsoft::UI::Composition::IScalarNaturalMotionAnimation::{put_FinalValue, put_InitialValue}
+Microsoft::UI::Composition::IVector3NaturalMotionAnimation::{put_FinalValue, put_InitialValue}
+Windows::ApplicationModel::DataTransfer::IDataPackage2::{SetWebLink, SetApplicationLink}
+Windows::ApplicationModel::DataTransfer::IDataPackageView::{GetTextAsync, Contains}
+Windows::ApplicationModel::DataTransfer::IDataPackageView2::{GetWebLinkAsync, GetApplicationLinkAsync}
+Windows::Foundation::Uri
+Microsoft::UI::Xaml::Media::AcrylicBrush
+Microsoft::UI::Xaml::Media::XamlLight
+Microsoft::UI::Xaml::Media::IXamlLight
+Microsoft::UI::Xaml::Media::IXamlLightOverrides
+Microsoft::UI::Xaml::Input::IManipulationDeltaRoutedEventArgs::{get_Container, get_Position, get_IsInertial, get_Delta, get_Cumulative, get_Velocities, put_Handled}
+Microsoft::UI::Xaml::Input::IManipulationStartedRoutedEventArgs::{get_Position, put_Handled, get_Cumulative}
+Microsoft::UI::Xaml::Input::IManipulationCompletedRoutedEventArgs::{get_Position, get_IsInertial, get_Cumulative, get_Velocities, put_Handled}
+Microsoft::UI::Input::{ManipulationDelta, ManipulationVelocities}
+Microsoft::UI::Xaml::Input::IPointerRoutedEventArgs::{GetCurrentPoint, get_Pointer, put_Handled}
+Microsoft::UI::Input::IPointerPoint::get_Position
+Microsoft::UI::Xaml::Input::IHoldingRoutedEventArgs::{get_HoldingState, GetPosition}
+Microsoft::UI::Xaml::Input::ITappedRoutedEventArgs::{GetPosition}
+Microsoft::UI::Xaml::Input::IDoubleTappedRoutedEventArgs::{GetPosition}
+Microsoft::UI::Xaml::Input::IRightTappedRoutedEventArgs::{GetPosition}
+Windows::Storage::Streams::DataReader::{FromBuffer, ReadBytes, Close}
+Windows::Storage::Streams::IBuffer
+Microsoft::UI::Xaml::Media::Imaging::RenderTargetBitmap::{PixelWidth, PixelHeight}
+Microsoft::UI::Xaml::Window::get_AppWindow
+Microsoft::UI::Windowing::IOverlappedPresenter::{Minimize, Maximize, Restore}
+Microsoft::UI::Windowing::FullScreenPresenter::Create
+Microsoft::UI::Windowing::IAppWindowPresenter
+Microsoft::UI::Windowing::AppWindowPresenter
+Windows::Foundation::PropertyValue::CreateString
+Windows::Foundation::IPropertyValue
+Microsoft::UI::Xaml::Media::IAcrylicBrush::{get_TintColor, put_TintColor, get_TintOpacity, put_TintOpacity, put_TintTransitionDuration, put_AlwaysUseFallback}
+Microsoft::UI::Xaml::Media::IAcrylicBrushStatics
+Microsoft::UI::Xaml::IUIElementProtected::{get_ProtectedCursor, put_ProtectedCursor}
+Microsoft::UI::Input::InputSystemCursor
+Microsoft::UI::Input::InputSystemCursorShape
+Microsoft::UI::Input::IInputSystemCursorStatics::Create
+Microsoft::UI::Composition::IExpressionAnimation::{get_Expression, put_Expression}
+Microsoft::UI::Xaml::IStyle::get_Setters
+Microsoft::UI::Xaml::Setter
+Microsoft::UI::Xaml::SetterBase
+Microsoft::UI::Xaml::SetterBaseCollection::{}
+Microsoft::UI::Xaml::ISetter::{get_Property, get_Value}
+Microsoft::UI::Xaml::Documents::TextElement::{FontSizeProperty, FontWeightProperty}
