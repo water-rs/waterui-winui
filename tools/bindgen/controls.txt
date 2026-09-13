@@ -228,6 +228,7 @@ Microsoft::UI::Xaml::Controls::IProgressRing::put_Minimum
 Microsoft::UI::Xaml::Controls::IProgressRing::put_Value
 Microsoft::UI::Xaml::Controls::IRadioButton::put_GroupName
 Microsoft::UI::Xaml::Controls::IRadioButtons::{add_SelectionChanged, remove_SelectionChanged}
+Microsoft::UI::Xaml::Controls::IRadioButtons::get_Items
 Microsoft::UI::Xaml::Controls::IRadioButtons::get_SelectedIndex
 Microsoft::UI::Xaml::Controls::IRadioButtons::put_Header
 Microsoft::UI::Xaml::Controls::IRadioButtons::put_ItemsSource

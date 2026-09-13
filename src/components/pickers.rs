@@ -260,11 +260,10 @@ fn render_radio_buttons(
     renderer: &WinUiRenderer,
 ) -> UIElement {
     let radio = RadioButtons::new().expect("RadioButtons::new");
-    let items_collection = radio
-        .cast::<ItemsControl>()
-        .expect("RadioButtons is an ItemsControl")
-        .Items()
-        .expect("ItemsControl::Items");
+    // `RadioButtons` is a `Control`, not an `ItemsControl`; its own `Items`
+    // returns the live `IVector<IInspectable>` backing the control.
+    let items_collection: windows_collections::IVector<windows_core::IInspectable> =
+        crate::util::vector(&radio.Items().expect("RadioButtons::Items"));
 
     let install_items = |list: &[PickerItem<Id>]| {
         items_collection.Clear().expect("ItemCollection::Clear");

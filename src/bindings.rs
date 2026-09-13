@@ -22413,6 +22413,16 @@ impl IRadioButtons {
             .ok()
         }
     }
+    pub(crate) fn Items(&self) -> windows_core::Result<IVector<windows_core::IInspectable>> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).Items)(
+                windows_core::Interface::as_raw(self),
+                &mut result__,
+            )
+            .and_then(|| windows_core::imp::Type::from_abi(result__))
+        }
+    }
     pub(crate) fn SelectedIndex(&self) -> windows_core::Result<i32> {
         unsafe {
             let mut result__ = core::mem::zeroed();
@@ -22494,7 +22504,10 @@ pub struct IRadioButtons_Vtbl {
         *mut core::ffi::c_void,
         *mut core::ffi::c_void,
     ) -> windows_core::HRESULT,
-    Items: usize,
+    pub Items: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
     ItemTemplate: usize,
     SetItemTemplate: usize,
     ContainerFromIndex: usize,
