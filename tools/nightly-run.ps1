@@ -24,6 +24,10 @@ if ($manifest -notmatch 'waterui\s*=\s*\{[^}]*version\s*=\s*"=([0-9.]+)"') {
     throw 'cannot find the `waterui = "=..."` pin in waterui-winui/Cargo.toml'
 }
 $pinned = $Matches[1]
+if ($manifest -notmatch 'windows-reactor-setup\s*=\s*\{[^}]*version\s*=\s*"([^"]+)"') {
+    throw 'cannot find the `windows-reactor-setup` version in waterui-winui/Cargo.toml'
+}
+$reactorSetup = $Matches[1]
 
 $meta = cargo metadata --format-version 1 --no-deps --manifest-path (Join-Path $WateruiPath 'Cargo.toml') | ConvertFrom-Json
 if ($LASTEXITCODE -ne 0) { throw 'cargo metadata failed on the waterui workspace' }
@@ -80,6 +84,17 @@ fn main() {
 }
 "@
 
+    # cargo:rustc-link-arg-bins only applies to the package whose build script
+    # emits it, so the self-contained manifest must be embedded by the runner
+    # crate's own build script — not by waterui-winui's.
+    Set-Content (Join-Path $crateDir 'build.rs') @'
+fn main() {
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
+        windows_reactor_setup::as_self_contained();
+    }
+}
+'@
+
     $exFwd = $ex.Dir -replace '\\', '/'
     Set-Content (Join-Path $crateDir 'Cargo.toml') @"
 [package]
@@ -93,6 +108,9 @@ edition = "2024"
 waterui-winui = { path = "$repoFwd", features = ["self-contained"] }
 waterui = "=$pinned"
 $($ex.Crate) = { path = "$exFwd" }
+
+[build-dependencies]
+windows-reactor-setup = "$reactorSetup"
 
 [patch.crates-io]
 $patchSection
