@@ -250,15 +250,8 @@ fn render_tab_view(
     for tab in layout.tabs {
         let item = TabViewItem::new().expect("TabViewItem::new");
         let queue = renderer.executor().queue().clone();
-        let header = tab_header(
-            tab.label,
-            tab.icon,
-            tab.badge,
-            env,
-            renderer,
-            &queue,
-            &mut guards,
-        );
+        let _ = (&tab.label, &tab.icon, &tab.badge, &queue); // DEBUG: plain header
+        let header = PropertyValue::CreateString("DEBUG tab").expect("CreateString");
         item.SetHeader(&header).expect("TabViewItem::SetHeader");
         item.SetIsClosable(false)
             .expect("TabViewItem::SetIsClosable");
