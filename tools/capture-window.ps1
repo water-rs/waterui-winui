@@ -30,8 +30,13 @@ using System.Runtime.InteropServices;
 public static class User32 {
     [DllImport("user32.dll")]
     public static extern bool GetWindowRect(IntPtr handle, out RECT rect);
+    [DllImport("user32.dll")]
+    public static extern bool GetClientRect(IntPtr handle, out RECT rect);
+    [DllImport("user32.dll")]
+    public static extern bool ClientToScreen(IntPtr handle, ref POINT point);
 }
 public struct RECT { public int Left, Top, Right, Bottom; }
+public struct POINT { public int X, Y; }
 '@
 }
 
@@ -57,6 +62,25 @@ try {
     $height = $rect.Bottom - $rect.Top
     if ($width -le 0 -or $height -le 0) { throw "window has an empty rect ($width x $height)" }
 
+    # Paint detection samples the client area only: the title bar and borders
+    # are drawn by the OS before any app content exists, so including them
+    # reports "painted" for a window that is still blank.
+    $client = New-Object RECT
+    $origin = New-Object POINT
+    [User32]::GetClientRect($proc.MainWindowHandle, [ref]$client) | Out-Null
+    [User32]::ClientToScreen($proc.MainWindowHandle, [ref]$origin) | Out-Null
+    $sampleX = $origin.X - $rect.Left
+    $sampleY = $origin.Y - $rect.Top
+    $sampleW = $client.Right - $client.Left
+    $sampleH = $client.Bottom - $client.Top
+    # Clamp to the captured bitmap bounds.
+    $x0 = [Math]::Max(0, $sampleX)
+    $y0 = [Math]::Max(0, $sampleY)
+    $x1 = [Math]::Min($width, $sampleX + $sampleW)
+    $y1 = [Math]::Min($height, $sampleY + $sampleH)
+    $hasClient = ($x1 -gt $x0) -and ($y1 -gt $y0)
+    if (-not $hasClient) { $x0 = 0; $y0 = 0; $x1 = $width; $y1 = $height }
+
     $painted = $false
     $bmp = $null
     $deadline = [DateTime]::UtcNow.AddSeconds($PaintTimeoutSec)
@@ -68,8 +92,8 @@ try {
         $graphics.Dispose()
 
         $colors = @{}
-        for ($x = 0; $x -lt $width; $x += 8) {
-            for ($y = 0; $y -lt $height; $y += 8) {
+        for ($x = $x0; $x -lt $x1; $x += 8) {
+            for ($y = $y0; $y -lt $y1; $y += 8) {
                 $colors[$bmp.GetPixel($x, $y).ToArgb()] = $true
             }
         }
