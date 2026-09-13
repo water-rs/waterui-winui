@@ -39,7 +39,6 @@ try {
     $deadline = [DateTime]::UtcNow.AddSeconds($WindowTimeoutSec)
     while ($true) {
         $proc.Refresh()
-        if ($proc.MainWindowHandle -ne [IntPtr]::Zero) { break }
         if ($proc.HasExited) {
             $tail = ''
             if ($StderrLog -and (Test-Path $StderrLog)) {
@@ -47,6 +46,7 @@ try {
             }
             throw "$Exe exited before showing a window (code $($proc.ExitCode)). $tail"
         }
+        if ($proc.MainWindowHandle -ne [IntPtr]::Zero) { break }
         if ([DateTime]::UtcNow -gt $deadline) { throw "$Exe did not show a window within ${WindowTimeoutSec}s" }
         Start-Sleep -Milliseconds 100
     }
