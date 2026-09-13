@@ -32,6 +32,7 @@ pub(crate) mod executor;
 pub(crate) mod gpu;
 pub(crate) mod layout;
 pub(crate) mod renderer;
+pub(crate) mod theme;
 pub(crate) mod util;
 pub(crate) mod window;
 

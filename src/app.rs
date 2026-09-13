@@ -62,9 +62,9 @@ pub fn run_app(app: App) -> windows_core::Result<()> {
             let pending = Rc::new(RefCell::new(windows));
             executor
                 .spawn_local(async move {
+                    let mut env = env;
                     #[cfg(feature = "gpu")]
-                    let env = {
-                        let mut env = env;
+                    {
                         let runtime =
                             waterui_graphics::GpuRuntime::new()
                                 .await
@@ -72,8 +72,10 @@ pub fn run_app(app: App) -> windows_core::Result<()> {
                                     panic!("WinUI GPU runtime creation failed: {error}")
                                 });
                         env.insert(runtime);
-                        env
-                    };
+                    }
+                    // Theme tokens (fonts, palette, color scheme) must exist
+                    // before any view resolves.
+                    crate::theme::install(&mut env).expect("WinUI theme installation failed");
                     let windows = pending.borrow_mut().drain(..).collect::<Vec<_>>();
                     for desc in windows {
                         let window = open_window(desc, &env, &mut renderer)

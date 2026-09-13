@@ -267,3 +267,9 @@ Microsoft::UI::Input::InputSystemCursor
 Microsoft::UI::Input::InputSystemCursorShape
 Microsoft::UI::Input::IInputSystemCursorStatics::Create
 Microsoft::UI::Composition::IExpressionAnimation::{get_Expression, put_Expression}
+Microsoft::UI::Xaml::IStyle::get_Setters
+Microsoft::UI::Xaml::Setter
+Microsoft::UI::Xaml::SetterBase
+Microsoft::UI::Xaml::SetterBaseCollection::{}
+Microsoft::UI::Xaml::ISetter::{get_Property, get_Value}
+Microsoft::UI::Xaml::Documents::TextElement::{FontSizeProperty, FontWeightProperty}

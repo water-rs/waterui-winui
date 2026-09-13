@@ -35,6 +35,7 @@ pub fn open_window(
     // Content.
     let content = renderer.render_any(desc.content.build(), env);
     window.SetContent(&content)?;
+    crate::theme::attach(&framework(&content), env)?;
 
     // Toolbar: WinUI exposes a custom title-bar element; when the window
     // declares a toolbar, host it in the title bar area.
