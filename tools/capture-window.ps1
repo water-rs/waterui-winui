@@ -26,6 +26,8 @@ Add-Type -AssemblyName System.Drawing, System.Windows.Forms
 if (-not ('User32' -as [type])) {
     Add-Type -TypeDefinition @'
 using System;
+using System.Text;
+using System.Collections.Generic;
 using System.Runtime.InteropServices;
 public static class User32 {
     [DllImport("user32.dll")]
@@ -34,6 +36,40 @@ public static class User32 {
     public static extern bool GetClientRect(IntPtr handle, out RECT rect);
     [DllImport("user32.dll")]
     public static extern bool ClientToScreen(IntPtr handle, ref POINT point);
+    [DllImport("user32.dll")]
+    public static extern bool SetWindowPos(IntPtr handle, IntPtr insertAfter, int x, int y, int cx, int cy, uint flags);
+    public delegate bool EnumWindowsProc(IntPtr handle, IntPtr param);
+    [DllImport("user32.dll")]
+    public static extern bool EnumWindows(EnumWindowsProc callback, IntPtr param);
+    [DllImport("user32.dll")]
+    public static extern uint GetWindowThreadProcessId(IntPtr handle, out uint processId);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    public static extern int GetClassName(IntPtr handle, StringBuilder name, int count);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    public static extern int GetWindowText(IntPtr handle, StringBuilder text, int count);
+    [DllImport("user32.dll")]
+    public static extern bool IsWindowVisible(IntPtr handle);
+    public static List<string> WindowsOfProcess(uint processId) {
+        var windows = new List<string>();
+        EnumWindowsProc callback = (handle, param) => {
+            uint owner;
+            GetWindowThreadProcessId(handle, out owner);
+            if (owner == processId) {
+                var cls = new StringBuilder(256);
+                GetClassName(handle, cls, cls.Capacity);
+                var title = new StringBuilder(512);
+                GetWindowText(handle, title, title.Capacity);
+                var rect = new RECT();
+                GetWindowRect(handle, out rect);
+                windows.Add(string.Format("{0} class={1} title=\"{2}\" visible={3} rect={4}x{5}",
+                    handle, cls, title, IsWindowVisible(handle),
+                    rect.Right - rect.Left, rect.Bottom - rect.Top));
+            }
+            return true;
+        };
+        EnumWindows(callback, IntPtr.Zero);
+        return windows;
+    }
 }
 public struct RECT { public int Left, Top, Right, Bottom; }
 public struct POINT { public int X, Y; }
@@ -83,8 +119,13 @@ try {
 
     $painted = $false
     $bmp = $null
+    # CopyFromScreen photographs the window's screen region — whatever is on
+    # top. Re-raising our window above all non-topmost windows before every
+    # sample keeps an occluding console or terminal from posing as content.
+    $swpFlags = 0x0001 -bor 0x0002 -bor 0x0010 -bor 0x0040
     $deadline = [DateTime]::UtcNow.AddSeconds($PaintTimeoutSec)
     while ($true) {
+        [User32]::SetWindowPos($proc.MainWindowHandle, [IntPtr]::Zero, 0, 0, 0, 0, $swpFlags) | Out-Null
         if ($null -ne $bmp) { $bmp.Dispose() }
         $bmp = New-Object System.Drawing.Bitmap $width, $height
         $graphics = [System.Drawing.Graphics]::FromImage($bmp)
@@ -148,10 +189,16 @@ try {
     }
 
     [pscustomobject]@{
-        Title      = $proc.MainWindowTitle
-        Painted    = $painted
-        WindowPng  = $windowPng
-        DesktopPng = $desktopPng
+        Title       = $proc.MainWindowTitle
+        Painted     = $painted
+        WindowPng   = $windowPng
+        DesktopPng  = $desktopPng
+        # On a blank window, list every top-level window the process owns so
+        # the summary can distinguish "content never rendered" from
+        # "MainWindowHandle picked the wrong window".
+        Diagnostics = if ($painted) { '' } else {
+            ([User32]::WindowsOfProcess($proc.Id)) -join ' | '
+        }
     }
 } finally {
     $proc.Refresh()
