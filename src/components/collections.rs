@@ -289,6 +289,29 @@ fn render_tab_view(
         tab_items.Size().expect("IVector::Size")
     );
 
+    // DEBUG: what does the control see once loaded into the tree?
+    let weak_for_loaded = tab_view.downgrade().expect("weak ref");
+    let loaded_revoker = tab_view
+        .cast::<FrameworkElement>()
+        .expect("FrameworkElement")
+        .Loaded(move |_, _| {
+            if let Some(tv) = weak_for_loaded.upgrade() {
+                let items = crate::util::vector::<_, windows_core::IInspectable>(
+                    &tv.TabItems().expect("TabItems"),
+                );
+                let size = items.Size().expect("Size");
+                tracing::info!("TabView Loaded: TabItems size = {size}");
+            }
+        })
+        .expect("Loaded");
+
+    // DEBUG: does VectorChanged fire for our appends / the load-time copy?
+    let items_changed_revoker = tab_view
+        .TabItemsChanged(|_, _| {
+            tracing::info!("TabItemsChanged fired");
+        })
+        .expect("TabItemsChanged");
+
     if let Some(index) = ids.iter().position(|id| *id == layout.selection.get()) {
         tab_view
             .SetSelectedIndex(i32::try_from(index).expect("tab index fits i32"))
@@ -317,6 +340,8 @@ fn render_tab_view(
         .expect("TabView::SelectionChanged");
     let element = framework(&tab_view.cast().expect("UIElement"));
     store_event_revoker(&element, revoker);
+    store_event_revoker(&element, loaded_revoker);
+    store_event_revoker(&element, items_changed_revoker);
 
     let queue = renderer.executor().queue().clone();
     let weak = tab_view.downgrade().expect("weak ref");
