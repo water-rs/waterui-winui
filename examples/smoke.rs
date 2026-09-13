@@ -23,9 +23,11 @@ fn run() {
     let state = binding(WindowState::Normal);
     let closer = state.clone();
     let window = Window::new("waterui-winui smoke", state, move || {
+        let closer = closer.clone();
         text("WaterUI on WinUI — smoke test").on_appear(move || {
             closer.set(WindowState::Closed);
         })
     });
-    waterui_winui::run_app(App::new_with_windows([window], Environment::new()));
+    waterui_winui::run_app(App::new_with_windows([window], Environment::new()))
+        .expect("WinUI smoke run failed");
 }
