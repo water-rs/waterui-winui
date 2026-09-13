@@ -297,6 +297,8 @@ Microsoft::UI::Xaml::Controls::ITeachingTip::put_Subtitle
 Microsoft::UI::Xaml::Controls::ITeachingTip::put_Title
 Microsoft::UI::Xaml::Controls::ItemContainer::IsSelectedProperty
 Microsoft::UI::Xaml::Controls::ItemsControl::ItemsSourceProperty
+Microsoft::UI::Xaml::Controls::ItemsRepeater::CreateInstance
+Microsoft::UI::Xaml::Controls::IItemsRepeater::{put_ItemsSource, put_ItemTemplate, GetOrCreateElement, TryGetElement}
 Microsoft::UI::Xaml::Controls::ITextBlock::put_FontSize
 Microsoft::UI::Xaml::Controls::ITextBlock::put_FontWeight
 Microsoft::UI::Xaml::Controls::ITextBlock::put_Foreground

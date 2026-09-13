@@ -27,15 +27,26 @@ const WINRT_UNIX_EPOCH_OFFSET: i64 = 116_444_736_000_000_000 / 10;
 
 /// jiff civil `DateTime` → `windows_time::DateTime`, interpreting the civil
 /// value in the system time zone (matching GTK's `from_local`).
+///
+/// `DatePickable::full_range` bounds unconstrained pickers with civil
+/// `DateTime::{MIN, MAX}`, which `jiff::Timestamp` cannot represent; those
+/// sentinels clamp to the edges of the `WinRT` `DateTime` range.
 fn to_winrt_datetime(value: DateTime) -> windows_time::DateTime {
-    let timestamp = value
+    let unix_100ns = value
         .to_zoned(jiff_tz())
-        .expect("civil DateTime must resolve in the system time zone")
-        .timestamp();
-    let unix_100ns =
-        i64::try_from(timestamp.as_nanosecond()).expect("timestamp out of i64 range") / 100;
+        .ok()
+        .and_then(|zoned| i64::try_from(zoned.timestamp().as_nanosecond() / 100).ok())
+        .unwrap_or_else(|| {
+            if value < DateTime::constant(1970, 1, 1, 0, 0, 0, 0) {
+                i64::MIN
+            } else {
+                i64::MAX
+            }
+        });
     windows_time::DateTime {
-        universal_time: unix_100ns + WINRT_UNIX_EPOCH_OFFSET,
+        universal_time: unix_100ns
+            .saturating_add(WINRT_UNIX_EPOCH_OFFSET)
+            .clamp(0, i64::MAX),
     }
 }
 

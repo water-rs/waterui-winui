@@ -1,15 +1,15 @@
 //! Collection views: `List` and `TabsLayout`.
+#![allow(clippy::inline_always, clippy::ref_as_ptr)] // generated `implement` macro items
 
-use std::cell::RefCell;
 use std::rc::Rc;
 
 use nami::Signal;
 use waterui::component::list::ListConfig;
-use waterui_core::id::{Id, SelfId};
+use waterui_core::id::Id;
 use waterui_core::views::Views;
 use waterui_core::{Environment, Native};
 use waterui_navigation::tab::{NativeTabStyle, TabIcon, TabsLayout};
-use windows_core::Interface;
+use windows_core::{Interface, Ref, implement};
 
 #[allow(clippy::wildcard_imports)] // the generated namespace
 use crate::bindings::*;
@@ -18,191 +18,133 @@ use crate::executor::enqueue_on_ui_thread;
 use crate::renderer::WinUiRenderer;
 use crate::util::{framework, store_event_revoker, store_watcher_guards};
 
-/// Reconciles a `WinUI` `ItemCollection` against `WaterUI`'s stable row IDs.
+/// `IElementFactory` that realizes list rows on demand.
 ///
-/// Mirrors the GTK `KeyedModel`: rows that moved keep their existing element;
-/// only insertions render new views, and trailing removals are dropped.
-struct KeyedItems {
-    ids: Vec<SelfId<Id>>,
-    elements: Vec<UIElement>,
+/// The repeater's items source is a plain index vector; `GetElement` is
+/// invoked only for rows inside the viewport plus the cache margin, so a
+/// 100,000-row list materializes a handful of elements instead of blocking
+/// the UI thread on eager realization.
+#[implement(IElementFactory)]
+struct RowFactory {
+    contents: waterui_core::views::SharedAnyViews<waterui::component::list::ListItem>,
+    env: Environment,
 }
 
-impl KeyedItems {
-    fn new() -> Self {
-        Self {
-            ids: Vec::new(),
-            elements: Vec::new(),
-        }
+impl IElementFactory_Impl for RowFactory_Impl {
+    fn GetElement(&self, args: Ref<ElementFactoryGetArgs>) -> windows_core::Result<UIElement> {
+        let index = usize::try_from(
+            args.ok()?
+                .Data()?
+                .cast::<windows_reference::IReference<i32>>()?
+                .Value()?,
+        )
+        .expect("row indices are non-negative");
+        let item = self
+            .contents
+            .get_view(index)
+            .expect("ItemsRepeater only requests indices below the items-source count");
+        let mut renderer =
+            WinUiRenderer::for_current_thread().expect("row rendering requires the UI thread");
+        Ok(renderer.render_any(item.content, &self.env))
     }
 
-    /// Applies `ids` to `items`, rendering new rows through `build`.
-    fn reconcile(
-        &mut self,
-        items: &ItemCollection,
-        ids: &[SelfId<Id>],
-        mut build: impl FnMut(usize) -> UIElement,
-    ) {
-        let unique: std::collections::BTreeSet<SelfId<Id>> = ids.iter().copied().collect();
-        assert_eq!(unique.len(), ids.len(), "collection IDs must be unique");
-
-        for (target, id) in ids.iter().copied().enumerate() {
-            if self.ids.as_slice().get(target) == Some(&id) {
-                continue;
-            }
-            if let Some(source) = self
-                .ids
-                .iter()
-                .enumerate()
-                .skip(target + 1)
-                .find_map(|(index, existing)| (*existing == id).then_some(index))
-            {
-                let element = self.elements.remove(source);
-                self.ids.remove(source);
-                items
-                    .RemoveAt(u32::try_from(source).expect("collection index fits u32"))
-                    .expect("ItemCollection::RemoveAt");
-                items
-                    .InsertAt(
-                        u32::try_from(target).expect("collection index fits u32"),
-                        &element
-                            .cast::<windows_core::IInspectable>()
-                            .expect("IInspectable"),
-                    )
-                    .expect("ItemCollection::InsertAt");
-                self.elements.insert(target, element);
-                self.ids.insert(target, id);
-            } else {
-                let element = build(target);
-                items
-                    .InsertAt(
-                        u32::try_from(target).expect("collection index fits u32"),
-                        &element
-                            .cast::<windows_core::IInspectable>()
-                            .expect("IInspectable"),
-                    )
-                    .expect("ItemCollection::InsertAt");
-                self.elements.insert(target, element);
-                self.ids.insert(target, id);
-            }
-        }
-
-        while self.ids.len() > ids.len() {
-            let index = self.ids.len() - 1;
-            self.ids.pop();
-            self.elements.pop();
-            items
-                .RemoveAt(u32::try_from(index).expect("collection index fits u32"))
-                .expect("ItemCollection::RemoveAt");
-        }
+    fn RecycleElement(&self, _args: Ref<ElementFactoryRecycleArgs>) -> windows_core::Result<()> {
+        // Rows are arbitrary WaterUI view trees, not rebindable containers;
+        // recycling is optional, so cleared elements are simply discarded.
+        Ok(())
     }
 }
 
-/// Renders one list row through a renderer bound to the UI thread.
-fn render_row(
-    contents: &waterui_core::views::SharedAnyViews<waterui::component::list::ListItem>,
-    index: usize,
-    env: &Environment,
-) -> UIElement {
-    let item = contents
-        .get_view(index)
-        .expect("collection index must produce a row view");
-    let mut row_renderer =
-        WinUiRenderer::for_current_thread().expect("row rendering requires the UI thread");
-    row_renderer.render_any(item.content, env)
+/// Builds the repeater's items source: row `index` carried as the item data.
+fn index_vector(count: usize) -> windows_core::IInspectable {
+    let indices: Vec<i32> = (0..i32::try_from(count).expect("row count fits i32")).collect();
+    windows_collections::IVector::<i32>::from(indices)
+        .cast::<windows_core::IInspectable>()
+        .expect("IVector is an IInspectable")
 }
 
 impl WinUiComponent for Native<ListConfig> {
-    /// Renders a `ListView` reconciled by stable row identity.
+    /// Renders a virtualizing `ItemsRepeater` inside a `ScrollViewer`; rows
+    /// are realized lazily through `RowFactory`.
     fn render(self, env: &Environment, renderer: &mut WinUiRenderer) -> UIElement {
         let config = self.into_inner();
         let contents = config.contents.clone();
         let env = env.clone();
 
-        let list_view = ListView::new().expect("ListView::new");
-        list_view
-            .cast::<ListViewBase>()
-            .expect("ListView is a ListViewBase")
-            .SetSelectionMode(ListViewSelectionMode::None)
-            .expect("ListViewBase::SetSelectionMode");
-        let items = list_view
-            .cast::<ItemsControl>()
-            .expect("ListView is an ItemsControl")
-            .Items()
-            .expect("ItemsControl::Items");
+        let repeater = ItemsRepeater::new().expect("ItemsRepeater::new");
+        let factory: IElementFactory = RowFactory {
+            contents: contents.clone(),
+            env: env.clone(),
+        }
+        .into();
+        repeater
+            .SetItemTemplate(
+                &factory
+                    .cast::<windows_core::IInspectable>()
+                    .expect("IElementFactory is an IInspectable"),
+            )
+            .expect("ItemsRepeater::SetItemTemplate");
+        repeater
+            .SetItemsSource(&index_vector(contents.len().get()))
+            .expect("ItemsRepeater::SetItemsSource");
 
-        let state = Rc::new(RefCell::new(KeyedItems::new()));
-
-        let initial_ids: Vec<SelfId<Id>> = (0..contents.len().get())
-            .map(|index| {
-                contents
-                    .get_id(index)
-                    .expect("list contents must provide an ID per row")
-            })
-            .collect();
-        state.borrow_mut().reconcile(&items, &initial_ids, |index| {
-            render_row(&contents, index, &env)
-        });
-
-        // Reactive reconcile on collection changes.
+        // Reactive refresh: a changed collection swaps the items source and
+        // the repeater re-virtualizes against the new count.
         let queue = renderer.executor().queue().clone();
-        let weak = list_view.downgrade().expect("ListView supports weak refs");
-        let state_for_watch = state.clone();
-        let contents_for_watch = contents.clone();
-        let env_for_watch = env.clone();
-        let contents_guard = contents.watch(.., move |ctx| {
-            let ids: Vec<SelfId<Id>> = ctx.value().to_vec();
+        let weak = repeater
+            .downgrade()
+            .expect("ItemsRepeater supports weak refs");
+        let mut guards = vec![contents.watch(.., move |ctx| {
+            let count = ctx.value().to_vec().len();
             let weak = weak.clone();
             let queue = queue.clone();
-            let state = state_for_watch.clone();
-            let contents = contents_for_watch.clone();
-            let env = env_for_watch.clone();
             enqueue_on_ui_thread(&queue, move || {
-                if let Some(list_view) = weak.upgrade() {
-                    let items = list_view
-                        .cast::<ItemsControl>()
-                        .expect("ListView is an ItemsControl")
-                        .Items()
-                        .expect("ItemsControl::Items");
-                    state
-                        .borrow_mut()
-                        .reconcile(&items, &ids, |index| render_row(&contents, index, &env));
+                if let Some(repeater) = weak.upgrade() {
+                    repeater
+                        .SetItemsSource(&index_vector(count))
+                        .expect("ItemsRepeater::SetItemsSource");
                 }
             });
-        });
-        let mut guards = vec![contents_guard];
+        })];
 
-        // Programmatic scroll-to-index.
+        // Programmatic scroll-to-index: realize the target row, then ask the
+        // ancestor ScrollViewer to bring it into view.
         if let Some(controller) = config.scroll_controller {
             let target = controller.target();
             let queue = renderer.executor().queue().clone();
-            let weak = list_view.downgrade().expect("weak ref");
+            let weak = repeater.downgrade().expect("weak ref");
             guards.push(controller.generation().watch(move |_| {
                 let index = target.get();
                 let weak = weak.clone();
                 let queue = queue.clone();
                 enqueue_on_ui_thread(&queue, move || {
-                    if let Some(list_view) = weak.upgrade() {
-                        let items = list_view
-                            .cast::<ItemsControl>()
-                            .expect("ItemsControl")
-                            .Items()
-                            .expect("Items");
-                        let element = items
-                            .GetAt(u32::try_from(index).expect("scroll target index fits u32"))
-                            .expect("scroll target must be an existing row")
-                            .cast::<UIElement>()
-                            .expect("row items are UIElements");
-                        list_view
-                            .cast::<ListViewBase>()
-                            .expect("ListViewBase")
-                            .ScrollIntoView(&element)
-                            .expect("ListViewBase::ScrollIntoView");
+                    if let Some(repeater) = weak.upgrade() {
+                        repeater
+                            .GetOrCreateElement(
+                                i32::try_from(index).expect("scroll target index fits i32"),
+                            )
+                            .expect("ItemsRepeater::GetOrCreateElement")
+                            .StartBringIntoView()
+                            .expect("UIElement::StartBringIntoView");
                     }
                 });
             }));
         }
 
-        let element = framework(&list_view.cast().expect("UIElement"));
+        let viewer = ScrollViewer::new().expect("ScrollViewer::new");
+        viewer
+            .SetVerticalScrollBarVisibility(ScrollBarVisibility::Auto)
+            .expect("ScrollViewer::SetVerticalScrollBarVisibility");
+        viewer
+            .SetHorizontalScrollBarVisibility(ScrollBarVisibility::Disabled)
+            .expect("ScrollViewer::SetHorizontalScrollBarVisibility");
+        viewer
+            .cast::<ContentControl>()
+            .expect("ScrollViewer is a ContentControl")
+            .SetContent(&repeater.cast::<UIElement>().expect("UIElement"))
+            .expect("ContentControl::SetContent");
+
+        let element = framework(&viewer.cast().expect("UIElement"));
         store_watcher_guards(&element, guards);
         element.cast().expect("FrameworkElement is a UIElement")
     }
