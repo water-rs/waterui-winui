@@ -40,13 +40,11 @@ $registry = @{}
 foreach ($p in $ourMeta.packages) {
     if ($p.source -and $p.source.StartsWith('registry')) { $registry[$p.name] = $true }
 }
-$patchSection = (
-    foreach ($p in $meta.packages) {
+$patchSection = ($(foreach ($p in $meta.packages) {
         if ($registry.ContainsKey($p.name)) {
             '{0} = {{ path = "{1}" }}' -f $p.name, ((Split-Path $p.manifest_path -Parent) -replace '\\', '/')
         }
-    } | Sort-Object
-) -join "`n"
+    } | Sort-Object) -join "`n")
 
 $examplesRoot = Join-Path $WateruiPath 'examples'
 $examples = foreach ($p in $meta.packages) {
