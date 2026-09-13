@@ -70,6 +70,67 @@ $examples = foreach ($p in $meta.packages) {
 if (-not $examples) { throw "no runnable examples discovered under $examplesRoot" }
 Write-Host "Discovered $($examples.Count) examples: $($examples.Id -join ', ')"
 
+# windows-reactor-setup stages the self-contained runtime from build scripts,
+# but every failure in that path is a silent println! that poisons its shared
+# cache (a partial nupkg or empty extract dir is never retried). When the
+# staged DLL is missing beside a runner exe, repopulate it from the crate's
+# own cache layout — re-downloading or re-extracting only what is broken.
+function Repair-SelfContainedRuntime([string] $Dest) {
+    $arch = switch ($env:PROCESSOR_ARCHITECTURE) {
+        'AMD64' { 'x64' } 'ARM64' { 'arm64' } 'X86' { 'x86' }
+        default { throw "unsupported arch: $env:PROCESSOR_ARCHITECTURE" }
+    }
+    $tar = "$env:SystemRoot\System32\tar.exe"
+    $curl = "$env:SystemRoot\System32\curl.exe"
+    $cache = Join-Path $env:LOCALAPPDATA 'windows-reactor-setup\temp'
+    $pkgDir = Get-ChildItem $cache -Directory -Filter 'Microsoft.WindowsAppSDK.Runtime-*' `
+        -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $pkgDir) { return $false }
+    $dash = $pkgDir.Name.LastIndexOf('-')
+    $name = $pkgDir.Name.Substring(0, $dash)
+    $ver = $pkgDir.Name.Substring($dash + 1)
+
+    $msix = Join-Path $pkgDir.FullName "MSIX\win10-$arch\Microsoft.WindowsAppRuntime.2.msix"
+    if (-not (Test-Path $msix)) {
+        # The crate leaves a partial nupkg and an empty extract dir behind when
+        # its download fails; retry once with a fresh download.
+        $nupkg = Join-Path $cache "$name.$ver.nupkg"
+        $staged = $false
+        foreach ($attempt in 0, 1) {
+            if (-not (Test-Path $nupkg)) {
+                & $curl -sL -o $nupkg "https://www.nuget.org/api/v2/package/$name/$ver"
+                if ($LASTEXITCODE -ne 0 -or -not (Test-Path $nupkg)) {
+                    Remove-Item $nupkg -Force -ErrorAction SilentlyContinue
+                    continue
+                }
+            }
+            Get-ChildItem $pkgDir.FullName -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force
+            & $tar -xf $nupkg -C $pkgDir.FullName --strip-components=1
+            if (Test-Path $msix) { $staged = $true; break }
+            Remove-Item $nupkg -Force -ErrorAction SilentlyContinue
+        }
+        if (-not $staged) { return $false }
+    }
+
+    $msixExtract = Join-Path $pkgDir.FullName '.msix_extract'
+    if (-not (Test-Path (Join-Path $msixExtract 'Microsoft.WindowsAppRuntime.dll'))) {
+        if (Test-Path $msixExtract) { Get-ChildItem $msixExtract | Remove-Item -Recurse -Force }
+        else { New-Item -ItemType Directory $msixExtract | Out-Null }
+        & $tar -xf $msix -C $msixExtract
+        if (-not (Test-Path (Join-Path $msixExtract 'Microsoft.WindowsAppRuntime.dll'))) { return $false }
+    }
+    Copy-Item (Join-Path $msixExtract '*') $Dest -Recurse -Force
+
+    # The crate also deploys the WebView2 projection assembly alongside.
+    $wv2 = Get-ChildItem $cache -Directory -Filter 'Microsoft.Web.WebView2-*' |
+        Select-Object -First 1
+    if ($wv2) {
+        $core = Join-Path $wv2.FullName "win-$arch\native_uap\Microsoft.Web.WebView2.Core.dll"
+        if (Test-Path $core) { Copy-Item $core $Dest -Force }
+    }
+    return Test-Path (Join-Path $Dest 'Microsoft.WindowsAppRuntime.dll')
+}
+
 $repoFwd = $repo -replace '\\', '/'
 $results = foreach ($ex in $examples) {
     Write-Host "::group::$($ex.Id)"
@@ -124,6 +185,37 @@ $patchSection
         [pscustomobject]@{ Example = $ex.Id; Result = 'build failed'; Title = '' }
         Write-Host "::endgroup::"
         continue
+    }
+
+    # as_self_contained stages the runtime next to the exe from whichever build
+    # script ran first (waterui-winui's as a dependency, or the runner's own).
+    # When the staged DLL is absent, capture the build-script stdout and the
+    # staging cache listing so the crate's silent println! diagnostics are
+    # visible in the artifact, then repair from the same cache.
+    $runtimeDir = Join-Path $env:CARGO_TARGET_DIR 'debug'
+    if (-not (Test-Path (Join-Path $runtimeDir 'Microsoft.WindowsAppRuntime.dll'))) {
+        Get-ChildItem (Join-Path $runtimeDir 'build') -Directory -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -like 'runner-*' -or $_.Name -like 'waterui-winui-*' } |
+            ForEach-Object {
+                $out = Join-Path $_.FullName 'output'
+                if (Test-Path $out) { Copy-Item $out "$prefix.$($_.Name).buildscript.log" }
+            }
+        $cache = Join-Path $env:LOCALAPPDATA 'windows-reactor-setup\temp'
+        if (Test-Path $cache) {
+            Get-ChildItem $cache -Depth 1 -ErrorAction SilentlyContinue |
+                ForEach-Object { "{0} ({1} bytes)" -f $_.FullName.Substring($cache.Length), $_.Length } |
+                Set-Content "$prefix.staging-cache.log"
+        }
+        $repaired = $false
+        try { $repaired = Repair-SelfContainedRuntime $runtimeDir }
+        catch { Write-Host "::warning::$($ex.Id): runtime repair failed: $_" }
+        if (-not $repaired) {
+            Write-Host "::warning::$($ex.Id): self-contained runtime not staged beside exe"
+            [pscustomobject]@{ Example = $ex.Id; Result = 'run failed: self-contained runtime not staged beside exe'; Title = '' }
+            Write-Host "::endgroup::"
+            continue
+        }
+        Write-Host "$($ex.Id): repaired self-contained runtime beside exe"
     }
 
     try {
