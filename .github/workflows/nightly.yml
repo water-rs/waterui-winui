@@ -1,0 +1,41 @@
+name: Nightly examples
+
+on:
+  schedule:
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+jobs:
+  examples:
+    name: windows-latest (examples)
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: waterui-winui
+      - name: Resolve pinned waterui tag
+        id: pin
+        run: |
+          $manifest = Get-Content waterui-winui\Cargo.toml -Raw
+          if ($manifest -notmatch 'waterui\s*=\s*\{[^}]*version\s*=\s*"=([0-9.]+)"') {
+            throw 'cannot find the waterui version pin in Cargo.toml'
+          }
+          "tag=v$($Matches[1])" >> $env:GITHUB_OUTPUT
+      - uses: actions/checkout@v4
+        with:
+          repository: water-rs/waterui
+          ref: ${{ steps.pin.outputs.tag }}
+          path: waterui
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install DirectX Shader Compiler
+        uses: tracel-ai/github-actions/install-dxc@295f2fdbae5271f4f8ad56d634e4ff6a95daafc8
+      - name: Run all examples and screenshot
+        run: waterui-winui\tools\nightly-run.ps1 -WateruiPath .\waterui -OutDir .\nightly-artifacts
+        timeout-minutes: 110
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: example-screenshots
+          path: nightly-artifacts
+          if-no-files-found: error
