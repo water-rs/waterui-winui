@@ -236,9 +236,8 @@ fn render_tab_view(
     env: &Environment,
     renderer: &mut WinUiRenderer,
 ) -> UIElement {
-    // DEBUG: bypass TabView entirely — does ANY element render here?
-    let probe = TextBlock::new().expect("TextBlock::new");
-    probe.SetText("DEBUG not a TabView").expect("SetText");
+    // DEBUG: bare TabView, add-button visible — does its template apply?
+    let probe = TabView::new().expect("TabView::new");
     return probe.cast().expect("UIElement");
     #[allow(unreachable_code)]
     let tab_view = TabView::new().expect("TabView::new");
