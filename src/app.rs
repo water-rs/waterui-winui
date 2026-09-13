@@ -54,6 +54,17 @@ pub fn run_app(app: App) -> windows_core::Result<()> {
             install_xaml_controls_resources(&application)?;
 
             let executor = DispatcherQueueExecutor::for_current_thread()?;
+            // View bodies spawn tasks through executor-core's thread-local and
+            // global slots (`.task(...)`, `spawn_local`, `spawn`). Install both
+            // before any window renders, mirroring the GTK backend.
+            let _ = executor_core::try_init_global_executor(native_executor::NativeExecutor::new());
+            let _ = executor_core::try_init_local_executor(
+                waterui::task::monitored_local_executor_with_probes(
+                    executor.clone(),
+                    None::<std::sync::Arc<dyn waterui::task::RuntimeProbe>>,
+                ),
+            );
+            waterui_locale::start_system_locale_listener();
             let mut renderer = WinUiRenderer::new(executor.clone());
 
             // GPU-backed surfaces (GpuSurface, AppliedFilter, vector scenes)
