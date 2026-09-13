@@ -67,6 +67,8 @@ $examples = foreach ($p in $meta.packages) {
         [pscustomobject]@{ Id = (Split-Path $dir -Leaf); Crate = $p.name; Lib = $lib.name; Dir = $dir }
     }
 }
+# DEBUG: navigation-only iteration on this branch, never merged.
+$examples = $examples | Where-Object { $_.Id -eq 'navigation' }
 if (-not $examples) { throw "no runnable examples discovered under $examplesRoot" }
 Write-Host "Discovered $($examples.Count) examples: $($examples.Id -join ', ')"
 
