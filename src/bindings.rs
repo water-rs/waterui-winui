@@ -8008,6 +8008,38 @@ impl IApplication {
             .and_then(|| windows_core::imp::Type::from_abi(result__))
         }
     }
+    pub(crate) fn UnhandledException<F>(
+        &self,
+        handler: F,
+    ) -> windows_core::Result<windows_core::EventRevoker>
+    where
+        F: Fn(
+                windows_core::Ref<windows_core::IInspectable>,
+                windows_core::Ref<UnhandledExceptionEventArgs>,
+            ) + 'static,
+    {
+        let handler: UnhandledExceptionEventHandler = {
+            let com = windows_core::imp::DelegateBox::<UnhandledExceptionEventHandler, F>::new(
+                &UnhandledExceptionEventHandlerBox::<F>::VTABLE,
+                handler,
+            );
+            unsafe { core::mem::transmute(windows_core::imp::box_new(com)) }
+        };
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            let token__ = (windows_core::Interface::vtable(self).UnhandledException)(
+                windows_core::Interface::as_raw(self),
+                windows_core::Interface::as_raw(&handler),
+                &mut result__,
+            )
+            .map(|| result__)?;
+            Ok(windows_core::EventRevoker::new(
+                self.clone(),
+                token__,
+                windows_core::Interface::vtable(self).RemoveUnhandledException,
+            ))
+        }
+    }
 }
 #[repr(C)]
 pub struct IApplication_Vtbl {
@@ -8016,6 +8048,21 @@ pub struct IApplication_Vtbl {
         *mut core::ffi::c_void,
         *mut *mut core::ffi::c_void,
     ) -> windows_core::HRESULT,
+    SetResources: usize,
+    DebugSettings: usize,
+    RequestedTheme: usize,
+    SetRequestedTheme: usize,
+    FocusVisualKind: usize,
+    SetFocusVisualKind: usize,
+    HighContrastAdjustment: usize,
+    SetHighContrastAdjustment: usize,
+    pub UnhandledException: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
+        *mut i64,
+    ) -> windows_core::HRESULT,
+    pub RemoveUnhandledException:
+        unsafe extern "system" fn(*mut core::ffi::c_void, i64) -> windows_core::HRESULT,
 }
 windows_core::imp::define_interface!(
     IApplicationFactory,
@@ -22042,7 +22089,11 @@ pub struct IPropertyValueStatics_Vtbl {
     CreateUInt8: usize,
     CreateInt16: usize,
     CreateUInt16: usize,
-    CreateInt32: usize,
+    pub CreateInt32: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        i32,
+        *mut *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
     CreateUInt32: usize,
     CreateInt64: usize,
     CreateUInt64: usize,
@@ -31073,6 +31124,75 @@ pub struct IUIElementStatics_Vtbl {
     ) -> windows_core::HRESULT,
 }
 windows_core::imp::define_interface!(
+    IUnhandledExceptionEventArgs,
+    IUnhandledExceptionEventArgs_Vtbl,
+    0x59eaeba9_8f9c_5be7_9b3b_820960faa220
+);
+impl windows_core::RuntimeType for IUnhandledExceptionEventArgs {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+impl IUnhandledExceptionEventArgs {
+    pub(crate) fn Exception(&self) -> windows_core::Result<windows_core::HRESULT> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).Exception)(
+                windows_core::Interface::as_raw(self),
+                &mut result__,
+            )
+            .map(|| result__)
+        }
+    }
+    pub(crate) fn Message(&self) -> windows_core::Result<String> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).Message)(
+                windows_core::Interface::as_raw(self),
+                &mut result__,
+            )
+            .map(|| {
+                let hstring: windows_core::HSTRING = core::mem::transmute(result__);
+                hstring.to_string_lossy()
+            })
+        }
+    }
+    pub(crate) fn Handled(&self) -> windows_core::Result<bool> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).Handled)(
+                windows_core::Interface::as_raw(self),
+                &mut result__,
+            )
+            .map(|| result__)
+        }
+    }
+    pub(crate) fn SetHandled(&self, value: bool) -> windows_core::Result<()> {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetHandled)(
+                windows_core::Interface::as_raw(self),
+                value,
+            )
+            .ok()
+        }
+    }
+}
+#[repr(C)]
+pub struct IUnhandledExceptionEventArgs_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    pub Exception: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut windows_core::HRESULT,
+    ) -> windows_core::HRESULT,
+    pub Message: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
+    pub Handled:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut bool) -> windows_core::HRESULT,
+    pub SetHandled:
+        unsafe extern "system" fn(*mut core::ffi::c_void, bool) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(
     IUriRuntimeClass,
     IUriRuntimeClass_Vtbl,
     0x9e365e57_48b2_4160_956f_c7385120bbfc
@@ -37279,6 +37399,17 @@ impl windows_core::RuntimeType for PropertyType {
 }
 pub struct PropertyValue;
 impl PropertyValue {
+    pub(crate) fn CreateInt32(value: i32) -> windows_core::Result<windows_core::IInspectable> {
+        Self::IPropertyValueStatics(|this| unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(this).CreateInt32)(
+                windows_core::Interface::as_raw(this),
+                value,
+                &mut result__,
+            )
+            .and_then(|| windows_core::imp::Type::from_abi(result__))
+        })
+    }
     pub(crate) fn CreateString(value: &str) -> windows_core::Result<windows_core::IInspectable> {
         Self::IPropertyValueStatics(|this| unsafe {
             let mut result__ = core::mem::zeroed();
@@ -43190,6 +43321,89 @@ impl windows_core::RuntimeName for UIElementWeakCollection {
 }
 unsafe impl Send for UIElementWeakCollection {}
 unsafe impl Sync for UIElementWeakCollection {}
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct UnhandledExceptionEventArgs(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(
+    UnhandledExceptionEventArgs,
+    windows_core::IUnknown,
+    windows_core::IInspectable
+);
+impl windows_core::RuntimeType for UnhandledExceptionEventArgs {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_class::<Self, IUnhandledExceptionEventArgs>();
+}
+unsafe impl windows_core::Interface for UnhandledExceptionEventArgs {
+    type Vtable = <IUnhandledExceptionEventArgs as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID = <IUnhandledExceptionEventArgs as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for UnhandledExceptionEventArgs {
+    type Target = IUnhandledExceptionEventArgs;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for UnhandledExceptionEventArgs {
+    const NAME: &'static str = "Microsoft.UI.Xaml.UnhandledExceptionEventArgs";
+}
+unsafe impl Send for UnhandledExceptionEventArgs {}
+unsafe impl Sync for UnhandledExceptionEventArgs {}
+windows_core::imp::define_interface!(
+    UnhandledExceptionEventHandler,
+    UnhandledExceptionEventHandler_Vtbl,
+    0x3427c1b6_5eca_5631_84b8_5bae732fb67f
+);
+impl windows_core::RuntimeType for UnhandledExceptionEventHandler {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct UnhandledExceptionEventHandler_Vtbl {
+    base__: windows_core::IUnknown_Vtbl,
+    Invoke: unsafe extern "system" fn(
+        this: *mut core::ffi::c_void,
+        sender: *mut core::ffi::c_void,
+        e: *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
+}
+struct UnhandledExceptionEventHandlerBox<
+    F: Fn(
+            windows_core::Ref<windows_core::IInspectable>,
+            windows_core::Ref<UnhandledExceptionEventArgs>,
+        ) + 'static,
+>(core::marker::PhantomData<(fn() -> F,)>);
+impl<
+    F: Fn(
+            windows_core::Ref<windows_core::IInspectable>,
+            windows_core::Ref<UnhandledExceptionEventArgs>,
+        ) + 'static,
+> UnhandledExceptionEventHandlerBox<F>
+{
+    const VTABLE: UnhandledExceptionEventHandler_Vtbl = UnhandledExceptionEventHandler_Vtbl {
+        base__: windows_core::IUnknown_Vtbl {
+            QueryInterface:
+                windows_core::imp::DelegateBox::<UnhandledExceptionEventHandler, F>::QueryInterface,
+            AddRef: windows_core::imp::DelegateBox::<UnhandledExceptionEventHandler, F>::AddRef,
+            Release: windows_core::imp::DelegateBox::<UnhandledExceptionEventHandler, F>::Release,
+        },
+        Invoke: Self::Invoke,
+    };
+    unsafe extern "system" fn Invoke(
+        this: *mut core::ffi::c_void,
+        sender: *mut core::ffi::c_void,
+        e: *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT {
+        unsafe {
+            let this = &mut *(this as *mut *mut core::ffi::c_void
+                as *mut windows_core::imp::DelegateBox<UnhandledExceptionEventHandler, F>);
+            (this.invoke)(
+                core::mem::transmute_copy(&sender),
+                core::mem::transmute_copy(&e),
+            );
+            windows_core::HRESULT(0)
+        }
+    }
+}
 #[repr(transparent)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Uri(windows_core::IUnknown);

@@ -62,6 +62,7 @@ jiff = "0.2"
 executor-core = "=0.7.1"
 native-executor = "0.8"
 tracing = "0.1"
+tracing-subscriber = { version = "0.3.23", default-features = false, features = ["fmt", "std"] }
 
 [target.'cfg(target_os = "windows")'.build-dependencies]
 windows-reactor-setup = { version = "0.100", optional = true }

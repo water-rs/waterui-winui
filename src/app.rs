@@ -32,6 +32,12 @@ use crate::window::open_window;
 /// Panics when called off the process's main thread or when the Windows App
 /// Runtime cannot be initialized.
 pub fn run_app(app: App) -> windows_core::Result<()> {
+    // Diagnostics land on stderr so harnesses capture them; `try_init` never
+    // overrides a consumer-installed subscriber.
+    let _ = tracing_subscriber::fmt()
+        .with_writer(std::io::stderr)
+        .try_init();
+
     bootstrap_runtime()?;
     initialize_ui_thread()?;
 
@@ -52,6 +58,21 @@ pub fn run_app(app: App) -> windows_core::Result<()> {
         let _app = create_application(Box::new(move || {
             let application = Application::Current().expect("Application::Current");
             install_xaml_controls_resources(&application)?;
+
+            // WinRT stowed exceptions (0xC000027B) carry no stderr output of
+            // their own; surface the real HRESULT and message here. `Handled`
+            // is left unset — the exception still terminates the process.
+            let revoker = application
+                .UnhandledException(|_sender, args| {
+                    if let Ok(args) = args.ok() {
+                        let code = args.Exception().unwrap_or_default();
+                        let message = args.Message().unwrap_or_default();
+                        tracing::error!(?code, %message, "unhandled XAML exception");
+                    }
+                })
+                .expect("Application::UnhandledException");
+            // The subscription lives for the process lifetime.
+            core::mem::forget(revoker);
 
             let executor = DispatcherQueueExecutor::for_current_thread()?;
             // View bodies spawn tasks through executor-core's thread-local and
