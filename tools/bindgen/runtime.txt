@@ -88,6 +88,8 @@ Microsoft::UI::Xaml::GridLength
 Microsoft::UI::Xaml::GridUnitType
 Microsoft::UI::Xaml::Hosting::ElementCompositionPreview::{GetElementVisual, SetElementChildVisual}
 Microsoft::UI::Xaml::IApplication::get_Resources
+Microsoft::UI::Xaml::IApplication::{add_UnhandledException, remove_UnhandledException}
+Microsoft::UI::Xaml::UnhandledExceptionEventArgs::{get_Exception, get_Message, get_Handled, put_Handled}
 Microsoft::UI::Xaml::IApplicationOverrides::{}
 Microsoft::UI::Xaml::IDependencyObject::ClearValue
 Microsoft::UI::Xaml::IElementFactory::{}
@@ -258,7 +260,7 @@ Microsoft::UI::Windowing::IOverlappedPresenter::{Minimize, Maximize, Restore}
 Microsoft::UI::Windowing::FullScreenPresenter::Create
 Microsoft::UI::Windowing::IAppWindowPresenter
 Microsoft::UI::Windowing::AppWindowPresenter
-Windows::Foundation::PropertyValue::CreateString
+Windows::Foundation::PropertyValue::{CreateString, CreateInt32}
 Windows::Foundation::IPropertyValue
 Microsoft::UI::Xaml::Media::IAcrylicBrush::{get_TintColor, put_TintColor, get_TintOpacity, put_TintOpacity, put_TintTransitionDuration, put_AlwaysUseFallback}
 Microsoft::UI::Xaml::Media::IAcrylicBrushStatics

@@ -55,10 +55,14 @@ impl IElementFactory_Impl for RowFactory_Impl {
     }
 }
 
-/// Builds the repeater's items source: row `index` carried as the item data.
+/// Builds the repeater's items source: each item is the row index boxed as an
+/// `IInspectable` (`ItemsRepeater` only accepts `IVector<IInspectable>`).
 fn index_vector(count: usize) -> windows_core::IInspectable {
-    let indices: Vec<i32> = (0..i32::try_from(count).expect("row count fits i32")).collect();
-    windows_collections::IVector::<i32>::from(indices)
+    let items: Vec<Option<windows_core::IInspectable>> = (0..i32::try_from(count)
+        .expect("row count fits i32"))
+        .map(|index| Some(PropertyValue::CreateInt32(index).expect("PropertyValue::CreateInt32")))
+        .collect();
+    windows_collections::IVector::<windows_core::IInspectable>::from(items)
         .cast::<windows_core::IInspectable>()
         .expect("IVector is an IInspectable")
 }
