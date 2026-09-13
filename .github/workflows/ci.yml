@@ -51,8 +51,16 @@ jobs:
       - name: Install DirectX Shader Compiler
         uses: tracel-ai/github-actions/install-dxc@295f2fdbae5271f4f8ad56d634e4ff6a95daafc8
       # `self-contained` stages the Windows App Runtime DLLs into
-      # `target/debug`, adjacent to the `smoke` bin target.
-      - run: cargo build --locked --bin smoke --features self-contained
+      # `target/debug`, adjacent to the bin targets.
+      - run: cargo build --locked --bins --features self-contained
       - name: Run smoke window
         run: .\target\debug\smoke.exe
         timeout-minutes: 10
+      - name: Screenshot form example
+        run: tools\screenshot-form.ps1
+        timeout-minutes: 10
+      - uses: actions/upload-artifact@v4
+        with:
+          name: form-example
+          path: form-*.png
+          if-no-files-found: error
