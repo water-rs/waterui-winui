@@ -7,11 +7,15 @@ $exe = Join-Path $PSScriptRoot '..\target\debug\form.exe'
 $proc = Start-Process -FilePath $exe -PassThru
 
 Add-Type -AssemblyName System.Drawing
-Add-Type -MemberDefinition @'
-[System.Runtime.InteropServices.DllImport("user32.dll")]
-public static extern bool GetWindowRect(System.IntPtr handle, out RECT rect);
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class User32 {
+    [DllImport("user32.dll")]
+    public static extern bool GetWindowRect(IntPtr handle, out RECT rect);
+}
 public struct RECT { public int Left, Top, Right, Bottom; }
-'@ -Name User32 -Namespace Win32
+'@
 
 try {
     $deadline = [DateTime]::UtcNow.AddMinutes(2)
@@ -23,8 +27,8 @@ try {
         Start-Sleep -Milliseconds 100
     }
 
-    $rect = New-Object Win32.RECT
-    [Win32.User32]::GetWindowRect($proc.MainWindowHandle, [ref]$rect) | Out-Null
+    $rect = New-Object RECT
+    [User32]::GetWindowRect($proc.MainWindowHandle, [ref]$rect) | Out-Null
     $width = $rect.Right - $rect.Left
     $height = $rect.Bottom - $rect.Top
     if ($width -le 0 -or $height -le 0) { throw "form window has an empty rect ($width x $height)" }
