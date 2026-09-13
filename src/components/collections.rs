@@ -266,7 +266,12 @@ fn render_tab_view(
         // The tab content is a lazily built `NavigationView`; inside a tab the
         // bar collapses, matching the GTK backend which renders its content.
         let navigation_view = tab.content.build();
-        let content = renderer.render_any(navigation_view.content, env);
+        let _ = &navigation_view; // DEBUG: bypass content render
+        let block = TextBlock::new().expect("TextBlock::new");
+        block
+            .SetText("DEBUG tab content")
+            .expect("TextBlock::SetText");
+        let content: UIElement = block.cast().expect("UIElement");
         item.cast::<ContentControl>()
             .expect("TabViewItem is a ContentControl")
             .SetContent(&content)
