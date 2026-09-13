@@ -25,6 +25,10 @@ pub struct WinUiSubView {
     element: UIElement,
     stretch_axis: StretchAxis,
     priority: i32,
+    /// Set while the owning panel runs its arrange pass. `Layout::place`
+    /// may query child sizes again, but `UIElement::Measure` is illegal
+    /// during arrange — the query then answers from `DesiredSize` instead.
+    arranging: std::cell::Cell<bool>,
 }
 
 impl WinUiSubView {
@@ -34,6 +38,7 @@ impl WinUiSubView {
             element,
             stretch_axis,
             priority: 0,
+            arranging: std::cell::Cell::new(false),
         }
     }
 
@@ -41,20 +46,13 @@ impl WinUiSubView {
     pub fn element(&self) -> &UIElement {
         &self.element
     }
-}
 
-impl SubView for WinUiSubView {
-    /// Measures the element against `proposal` via `UIElement::Measure`.
-    ///
-    /// `None` maps to an unbounded proposal; a concrete extent caps the
-    /// available size on that axis.
-    fn measure(&self, proposal: ProposalSize) -> ViewDimensions {
-        self.element
-            .Measure(Size {
-                width: proposal.width.unwrap_or(f32::INFINITY),
-                height: proposal.height.unwrap_or(f32::INFINITY),
-            })
-            .expect("UIElement::Measure failed during layout");
+    /// Marks the subview as inside (or outside) the arrange pass.
+    pub(crate) fn set_arranging(&self, arranging: bool) {
+        self.arranging.set(arranging);
+    }
+
+    fn desired_dimensions(&self) -> ViewDimensions {
         let desired = self
             .element
             .DesiredSize()
@@ -63,6 +61,27 @@ impl SubView for WinUiSubView {
             desired.width,
             desired.height,
         ))
+    }
+}
+
+impl SubView for WinUiSubView {
+    /// Measures the element against `proposal` via `UIElement::Measure`.
+    ///
+    /// `None` maps to an unbounded proposal; a concrete extent caps the
+    /// available size on that axis. During arrange the element's measured
+    /// `DesiredSize` is returned instead: `Measure` inside the arrange pass
+    /// re-invalidates the parent and produces a XAML layout cycle.
+    fn measure(&self, proposal: ProposalSize) -> ViewDimensions {
+        if self.arranging.get() {
+            return self.desired_dimensions();
+        }
+        self.element
+            .Measure(Size {
+                width: proposal.width.unwrap_or(f32::INFINITY),
+                height: proposal.height.unwrap_or(f32::INFINITY),
+            })
+            .expect("UIElement::Measure failed during layout");
+        self.desired_dimensions()
     }
 
     fn stretch_axis(&self) -> StretchAxis {
@@ -131,7 +150,15 @@ impl IFrameworkElementOverrides_Impl for LayoutPanel_Impl {
             final_size.width,
             final_size.height,
         ));
+        // `place` may query child sizes; arrange-phase queries must not run
+        // `UIElement::Measure`, so subviews answer from `DesiredSize` instead.
+        for subview in &state.subviews {
+            subview.set_arranging(true);
+        }
         let rects = state.layout.place(bounds, &children);
+        for subview in &state.subviews {
+            subview.set_arranging(false);
+        }
         for (subview, rect) in state.subviews.iter().zip(rects.iter()) {
             subview.element().Arrange(Rect {
                 x: rect.x(),
