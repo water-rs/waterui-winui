@@ -236,13 +236,10 @@ fn render_tab_view(
     env: &Environment,
     renderer: &mut WinUiRenderer,
 ) -> UIElement {
-    // DEBUG: bare TabView, add-button visible — does its template apply?
-    let probe = TabView::new().expect("TabView::new");
-    return probe.cast().expect("UIElement");
-    #[allow(unreachable_code)]
     let tab_view = TabView::new().expect("TabView::new");
+    // DEBUG: keep add-button visible so the strip must show *something*
     tab_view
-        .SetIsAddTabButtonVisible(false)
+        .SetIsAddTabButtonVisible(true)
         .expect("TabView::SetIsAddTabButtonVisible");
     let tab_items = crate::util::vector::<_, windows_core::IInspectable>(
         &tab_view.TabItems().expect("TabView::TabItems"),
@@ -285,6 +282,12 @@ fn render_tab_view(
             )
             .expect("IVector::Append");
     }
+
+    // DEBUG: did the appends reach the control's live collection?
+    tracing::info!(
+        "TabItems size after appends: {}",
+        tab_items.Size().expect("IVector::Size")
+    );
 
     if let Some(index) = ids.iter().position(|id| *id == layout.selection.get()) {
         tab_view
