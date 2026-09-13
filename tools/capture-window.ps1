@@ -91,15 +91,43 @@ try {
         $graphics.CopyFromScreen($rect.Left, $rect.Top, 0, 0, $bmp.Size)
         $graphics.Dispose()
 
-        $colors = @{}
+        $freq = @{}
+        $total = 0
         for ($x = $x0; $x -lt $x1; $x += 8) {
             for ($y = $y0; $y -lt $y1; $y += 8) {
-                $colors[$bmp.GetPixel($x, $y).ToArgb()] = $true
+                $argb = $bmp.GetPixel($x, $y).ToArgb()
+                $freq[$argb] = $freq[$argb] + 1
+                $total++
             }
         }
-        if ($colors.Count -gt 16) { $painted = $true; break }
+        # Painted content always contains pixels that visibly deviate from the
+        # modal color; a blank window is a single flat field. A color-count
+        # threshold alone misses sparse dark content (dim text, a lone button)
+        # whose palette is small but which clearly deviates from the field.
+        $dominantArgb = 0
+        $dominantCount = 0
+        foreach ($entry in $freq.GetEnumerator()) {
+            if ($entry.Value -gt $dominantCount) {
+                $dominantCount = $entry.Value
+                $dominantArgb = $entry.Key
+            }
+        }
+        $dr = ($dominantArgb -shr 16) -band 0xFF
+        $dg = ($dominantArgb -shr 8) -band 0xFF
+        $db = $dominantArgb -band 0xFF
+        $deviating = 0
+        foreach ($argb in $freq.Keys) {
+            if ($argb -eq $dominantArgb) { continue }
+            $r = ($argb -shr 16) -band 0xFF
+            $g = ($argb -shr 8) -band 0xFF
+            $b = $argb -band 0xFF
+            if ([Math]::Abs($r - $dr) + [Math]::Abs($g - $dg) + [Math]::Abs($b - $db) -gt 64) {
+                $deviating += $freq[$argb]
+            }
+        }
+        if ($deviating -ge 4 -or $freq.Count -gt 16) { $painted = $true; break }
         $proc.Refresh()
-        if ($proc.HasExited) { throw "$Exe exited while waiting for paint" }
+        if ($proc.HasExited) { throw "$Exe exited while waiting for paint (code $($proc.ExitCode))" }
         if ([DateTime]::UtcNow -gt $deadline) { break }
         Start-Sleep -Milliseconds 100
     }
