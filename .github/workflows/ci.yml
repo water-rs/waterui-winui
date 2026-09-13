@@ -1,0 +1,60 @@
+name: CI
+
+# WinUI 3 is Windows-only, so every leg runs on windows-latest. The smoke leg
+# executes a real WinUI window against the self-contained Windows App Runtime
+# staged by `windows-reactor-setup`; no installed runtime is assumed.
+
+on:
+  push:
+    branches: [dev, main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  check:
+    name: windows-latest
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      # `waterui-graphics` AOT-compiles WGSL to DXIL through shaderloom when the
+      # `gpu` feature (on by default) is enabled for a Windows target.
+      - name: Install DirectX Shader Compiler
+        uses: tracel-ai/github-actions/install-dxc@295f2fdbae5271f4f8ad56d634e4ff6a95daafc8
+      - run: cargo fmt --check
+      - run: cargo check --locked --workspace --no-default-features
+      - run: cargo check --locked --workspace --all-targets
+      - run: cargo clippy --locked --workspace --all-targets -- -D warnings
+      - run: cargo test --locked --workspace
+
+  smoke:
+    name: windows-latest (smoke)
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install DirectX Shader Compiler
+        uses: tracel-ai/github-actions/install-dxc@295f2fdbae5271f4f8ad56d634e4ff6a95daafc8
+      # `self-contained` stages the Windows App Runtime DLLs next to the
+      # binaries in `target/debug`; the smoke example is built under
+      # `target/debug/examples`, so it is copied up beside the runtime.
+      - run: cargo build --locked --example smoke --features self-contained
+      - run: Copy-Item target\debug\examples\smoke.exe target\debug\smoke.exe
+      - name: Run smoke window
+        run: .\target\debug\smoke.exe
+        timeout-minutes: 10

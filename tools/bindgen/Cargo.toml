@@ -1,0 +1,20 @@
+[package]
+name = "winui-bindgen"
+description = "Regenerates the WinUI 3 bindings checked into waterui-winui"
+publish = false
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+ureq = "3"
+zip = { version = "4", default-features = false, features = ["deflate"] }
+windows-bindgen = "0.100"
+windows-default = "0.100"
+windows-metadata = "0.100"
+windows-rdl = "0.100"
