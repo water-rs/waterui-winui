@@ -74,9 +74,10 @@ Write-Host "Discovered $($examples.Count) examples: $($examples.Id -join ', ')"
 
 # windows-reactor-setup stages the self-contained runtime from build scripts,
 # but every failure in that path is a silent println! that poisons its shared
-# cache (a partial nupkg or empty extract dir is never retried). When the
-# staged DLL is missing beside a runner exe, repopulate it from the crate's
-# own cache layout — re-downloading or re-extracting only what is broken.
+# cache (a partial nupkg, a truncated msix, or an empty extract dir is never
+# retried). When the staged DLL is missing beside a runner exe, repopulate it
+# from the crate's own cache — each level verifies by expanding, and a failed
+# expansion rebuilds from the level above (msix <- nupkg <- download).
 function Repair-SelfContainedRuntime([string] $Dest) {
     $arch = switch ($env:PROCESSOR_ARCHITECTURE) {
         'AMD64' { 'x64' } 'ARM64' { 'arm64' } 'X86' { 'x86' }
@@ -85,52 +86,68 @@ function Repair-SelfContainedRuntime([string] $Dest) {
     $tar = "$env:SystemRoot\System32\tar.exe"
     $curl = "$env:SystemRoot\System32\curl.exe"
     $cache = Join-Path $env:LOCALAPPDATA 'windows-reactor-setup\temp'
+
+    # The package identity comes from whichever cache artifact exists; a
+    # poisoned run can leave only one of them behind. Directory names use
+    # `<id>-<version>` while nupkgs use `<id>.<version>.nupkg`.
     $pkgDir = Get-ChildItem $cache -Directory -Filter 'Microsoft.WindowsAppSDK.Runtime-*' `
         -ErrorAction SilentlyContinue | Select-Object -First 1
-    if (-not $pkgDir) { return $false }
-    $dash = $pkgDir.Name.LastIndexOf('-')
-    $name = $pkgDir.Name.Substring(0, $dash)
-    $ver = $pkgDir.Name.Substring($dash + 1)
+    $nupkgItem = Get-ChildItem $cache -File -Filter 'Microsoft.WindowsAppSDK.Runtime.*.nupkg' `
+        -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($pkgDir -and $pkgDir.Name -match '^(?<id>.+)-(?<ver>\d[^-]*)$') {
+        $name = $Matches.id; $ver = $Matches.ver
+    } elseif ($nupkgItem -and $nupkgItem.BaseName -match '^(?<id>.+?)\.(?<ver>\d+(\.\d+)+)$') {
+        $name = $Matches.id; $ver = $Matches.ver
+    } else { return $false }
+    if (-not $pkgDir) { $pkgDir = New-Item -ItemType Directory -Force -Path (Join-Path $cache "$name-$ver") }
 
     $msix = Join-Path $pkgDir.FullName "MSIX\win10-$arch\Microsoft.WindowsAppRuntime.2.msix"
-    if (-not (Test-Path $msix)) {
-        # The crate leaves a partial nupkg and an empty extract dir behind when
-        # its download fails; retry once with a fresh download.
-        $nupkg = Join-Path $cache "$name.$ver.nupkg"
-        $staged = $false
-        foreach ($attempt in 0, 1) {
-            if (-not (Test-Path $nupkg)) {
-                & $curl -sL -o $nupkg "https://www.nuget.org/api/v2/package/$name/$ver"
-                if ($LASTEXITCODE -ne 0 -or -not (Test-Path $nupkg)) {
-                    Remove-Item $nupkg -Force -ErrorAction SilentlyContinue
-                    continue
-                }
-            }
-            Get-ChildItem $pkgDir.FullName -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force
-            & $tar -xf $nupkg -C $pkgDir.FullName --strip-components=1
-            if (Test-Path $msix) { $staged = $true; break }
-            Remove-Item $nupkg -Force -ErrorAction SilentlyContinue
-        }
-        if (-not $staged) { return $false }
-    }
-
     $msixExtract = Join-Path $pkgDir.FullName '.msix_extract'
-    if (-not (Test-Path (Join-Path $msixExtract 'Microsoft.WindowsAppRuntime.dll'))) {
-        if (Test-Path $msixExtract) { Get-ChildItem $msixExtract | Remove-Item -Recurse -Force }
-        else { New-Item -ItemType Directory $msixExtract | Out-Null }
-        & $tar -xf $msix -C $msixExtract
-        if (-not (Test-Path (Join-Path $msixExtract 'Microsoft.WindowsAppRuntime.dll'))) { return $false }
-    }
-    Copy-Item (Join-Path $msixExtract '*') $Dest -Recurse -Force
+    $nupkg = Join-Path $cache "$name.$ver.nupkg"
 
-    # The crate also deploys the WebView2 projection assembly alongside.
-    $wv2 = Get-ChildItem $cache -Directory -Filter 'Microsoft.Web.WebView2-*' |
-        Select-Object -First 1
-    if ($wv2) {
-        $core = Join-Path $wv2.FullName "win-$arch\native_uap\Microsoft.Web.WebView2.Core.dll"
-        if (Test-Path $core) { Copy-Item $core $Dest -Force }
+    function Expand-Msix([string] $MsixFile, [string] $ExtractDir) {
+        if (Test-Path $ExtractDir) { Get-ChildItem $ExtractDir | Remove-Item -Recurse -Force }
+        else { New-Item -ItemType Directory $ExtractDir | Out-Null }
+        & $tar -xf $MsixFile -C $ExtractDir
+        # A truncated archive can still yield the DLL; require a clean exit so
+        # a corrupt member later in the stream does not ship a half-staged
+        # runtime beside the exe.
+        return ($LASTEXITCODE -eq 0) -and (Test-Path (Join-Path $ExtractDir 'Microsoft.WindowsAppRuntime.dll'))
     }
-    return Test-Path (Join-Path $Dest 'Microsoft.WindowsAppRuntime.dll')
+
+    $msixFromNupkg = $false
+    foreach ($attempt in 0, 1, 2) {
+        if ((Test-Path $msix) -and (Expand-Msix $msix $msixExtract)) {
+            Copy-Item (Join-Path $msixExtract '*') $Dest -Recurse -Force
+
+            # The crate also deploys the WebView2 projection assembly alongside.
+            $wv2 = Get-ChildItem $cache -Directory -Filter 'Microsoft.Web.WebView2-*' |
+                Select-Object -First 1
+            if ($wv2) {
+                $core = Join-Path $wv2.FullName "win-$arch\native_uap\Microsoft.Web.WebView2.Core.dll"
+                if (Test-Path $core) { Copy-Item $core $Dest -Force }
+            }
+            return Test-Path (Join-Path $Dest 'Microsoft.WindowsAppRuntime.dll')
+        }
+
+        # The msix is absent or failed to expand — rebuild it from the nupkg.
+        # A msix produced by this nupkg already failed once: the nupkg itself
+        # is corrupt, so force a fresh download on the next attempt.
+        if ($msixFromNupkg) { Remove-Item $nupkg -Force -ErrorAction SilentlyContinue }
+        $msixFromNupkg = $false
+        if (-not (Test-Path $nupkg)) {
+            & $curl -sL -o $nupkg "https://www.nuget.org/api/v2/package/$name/$ver"
+            if ($LASTEXITCODE -ne 0 -or -not (Test-Path $nupkg)) {
+                Remove-Item $nupkg -Force -ErrorAction SilentlyContinue
+                continue
+            }
+        }
+        Get-ChildItem $pkgDir.FullName -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force
+        & $tar -xf $nupkg -C $pkgDir.FullName --strip-components=1
+        if (Test-Path $msix) { $msixFromNupkg = $true }
+        else { Remove-Item $nupkg -Force -ErrorAction SilentlyContinue }
+    }
+    return $false
 }
 
 $repoFwd = $repo -replace '\\', '/'
