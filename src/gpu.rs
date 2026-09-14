@@ -461,6 +461,11 @@ pub(crate) fn render_applied_filter(
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss
 )]
+#[expect(
+    clippy::await_holding_refcell_ref,
+    reason = "`Effect::setup` takes `&mut self`, so the borrow must live across the await; \
+              `busy` admits one frame at a time and this fn is the only borrower of `filter`"
+)]
 // Flat capture/present pump; pixel conversions saturate intentionally.
 async fn filter_frame(
     content: UIElement,
@@ -509,10 +514,6 @@ async fn filter_frame(
             input_format: wgpu::TextureFormat::Bgra8Unorm,
             output_format: wgpu::TextureFormat::Bgra8Unorm,
         };
-        // The borrow must live across the await because `setup` takes `&mut
-        // self`; it is sound here because `filter_frame` is the only borrower
-        // and `busy` admits one frame at a time on the dispatcher.
-        #[expect(clippy::await_holding_refcell_ref)]
         let setup_result = state.filter.borrow_mut().setup(&ctx).await;
         setup_result.expect("AppliedFilter setup failed");
         state.setup_done.set(true);
