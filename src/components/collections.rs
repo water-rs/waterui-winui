@@ -237,19 +237,26 @@ fn render_tab_view(
     renderer: &mut WinUiRenderer,
 ) -> UIElement {
     let tab_view = TabView::new().expect("TabView::new");
-    // DEBUG: keep add-button visible so the strip must show *something*
     tab_view
-        .SetIsAddTabButtonVisible(true)
+        .SetIsAddTabButtonVisible(false)
         .expect("TabView::SetIsAddTabButtonVisible");
+
     let ids: Vec<Id> = layout.tabs.iter().map(|tab| tab.id).collect();
     let mut guards = Vec::new();
 
-    let mut items: Vec<Option<windows_core::IInspectable>> = Vec::new();
+    let mut items: Vec<windows_core::IInspectable> = Vec::new();
     for tab in layout.tabs {
         let item = TabViewItem::new().expect("TabViewItem::new");
         let queue = renderer.executor().queue().clone();
-        let _ = (&tab.label, &tab.icon, &tab.badge, &queue); // DEBUG: plain header
-        let header = PropertyValue::CreateString("DEBUG tab").expect("CreateString");
+        let header = tab_header(
+            tab.label,
+            tab.icon,
+            tab.badge,
+            env,
+            renderer,
+            &queue,
+            &mut guards,
+        );
         item.SetHeader(&header).expect("TabViewItem::SetHeader");
         item.SetIsClosable(false)
             .expect("TabViewItem::SetIsClosable");
@@ -257,12 +264,7 @@ fn render_tab_view(
         // The tab content is a lazily built `NavigationView`; inside a tab the
         // bar collapses, matching the GTK backend which renders its content.
         let navigation_view = tab.content.build();
-        let _ = &navigation_view; // DEBUG: bypass content render
-        let block = TextBlock::new().expect("TextBlock::new");
-        block
-            .SetText("DEBUG tab content")
-            .expect("TextBlock::SetText");
-        let content: UIElement = block.cast().expect("UIElement");
+        let content = renderer.render_any(navigation_view.content, env);
         item.cast::<ContentControl>()
             .expect("TabViewItem is a ContentControl")
             .SetContent(&content)
@@ -271,59 +273,39 @@ fn render_tab_view(
             .expect("TabViewItem is a Control")
             .SetIsEnabled(tab.enabled.get())
             .expect("Control::SetIsEnabled");
-        items.push(Some(
+        items.push(
             item.cast::<windows_core::IInspectable>()
                 .expect("IInspectable"),
-        ));
+        );
     }
 
-    // DEBUG: drive the strip through TabItemsSource instead of TabItems —
-    // the template binds the inner ListView's ItemsSource to it directly.
-    let source = windows_collections::IVector::<windows_core::IInspectable>::from(items)
+    // Feed the strip through `TabItemsSource`, which binds the inner
+    // `ListView`'s `ItemsSource` directly. Items appended to `TabItems` are
+    // copied into the `ListView` on load and never materialize in practice.
+    let source_vec: Vec<Option<windows_core::IInspectable>> =
+        items.iter().cloned().map(Some).collect();
+    let source = windows_collections::IVector::<windows_core::IInspectable>::from(source_vec)
         .cast::<windows_core::IInspectable>()
         .expect("IVector is an IInspectable");
     tab_view
         .SetTabItemsSource(&source)
         .expect("TabView::SetTabItemsSource");
 
-    // DEBUG: fill the window slot so the content row gets real height
+    // The default style aligns the `TabView` to the top with only its desired
+    // height, which collapses the `*` content row; stretch it to fill.
     tab_view
         .cast::<FrameworkElement>()
         .expect("FrameworkElement")
         .SetVerticalAlignment(VerticalAlignment::Stretch)
         .expect("SetVerticalAlignment");
 
-    // DEBUG: what does the control see once loaded into the tree?
-    let weak_for_loaded = tab_view.downgrade().expect("weak ref");
-    let loaded_revoker = tab_view
-        .cast::<FrameworkElement>()
-        .expect("FrameworkElement")
-        .Loaded(move |_, _| {
-            if let Some(tv) = weak_for_loaded.upgrade() {
-                let items = crate::util::vector::<_, windows_core::IInspectable>(
-                    &tv.TabItems().expect("TabItems"),
-                );
-                let size = items.Size().expect("Size");
-                let sel_index = tv.SelectedIndex().expect("SelectedIndex");
-                let has_sel = tv.SelectedItem().is_ok();
-                tracing::info!(
-                    "TabView Loaded: TabItems size = {size}, SelectedIndex = {sel_index}, SelectedItem set = {has_sel}"
-                );
-            }
-        })
-        .expect("Loaded");
-
-    // DEBUG: does VectorChanged fire for our appends / the load-time copy?
-    let items_changed_revoker = tab_view
-        .TabItemsChanged(|_, _| {
-            tracing::info!("TabItemsChanged fired");
-        })
-        .expect("TabItemsChanged");
-
     if let Some(index) = ids.iter().position(|id| *id == layout.selection.get()) {
+        // Selection must go through `SelectedItem`: on an `ItemsSource`-bound
+        // list `SelectedIndex` cannot push into the `ListView` before its
+        // containers exist, so the item stays unselected and content blank.
         tab_view
-            .SetSelectedIndex(i32::try_from(index).expect("tab index fits i32"))
-            .expect("TabView::SetSelectedIndex");
+            .SetSelectedItem(&items[index])
+            .expect("TabView::SetSelectedItem");
     }
 
     let selection = layout.selection.clone();
@@ -348,8 +330,6 @@ fn render_tab_view(
         .expect("TabView::SelectionChanged");
     let element = framework(&tab_view.cast().expect("UIElement"));
     store_event_revoker(&element, revoker);
-    store_event_revoker(&element, loaded_revoker);
-    store_event_revoker(&element, items_changed_revoker);
 
     let queue = renderer.executor().queue().clone();
     let weak = tab_view.downgrade().expect("weak ref");
@@ -358,14 +338,16 @@ fn render_tab_view(
         let weak = weak.clone();
         let queue = queue.clone();
         let ids = ids.clone();
+        let items = items.clone();
         enqueue_on_ui_thread(&queue, move || {
             if let Some(tab_view) = weak.upgrade()
                 && let Some(index) = ids.iter().position(|id| *id == value)
             {
-                let index = i32::try_from(index).expect("tab index fits i32");
-                if tab_view.SelectedIndex().expect("SelectedIndex") != index {
-                    tab_view.SetSelectedIndex(index).expect("SetSelectedIndex");
-                }
+                // `SelectedItem` is a no-op when already selected, so this
+                // cannot feed back into the `SelectionChanged` handler.
+                tab_view
+                    .SetSelectedItem(&items[index])
+                    .expect("SetSelectedItem");
             }
         });
     }));
