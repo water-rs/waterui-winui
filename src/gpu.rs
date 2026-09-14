@@ -509,12 +509,12 @@ async fn filter_frame(
             input_format: wgpu::TextureFormat::Bgra8Unorm,
             output_format: wgpu::TextureFormat::Bgra8Unorm,
         };
-        state
-            .filter
-            .borrow_mut()
-            .setup(&ctx)
-            .await
-            .expect("AppliedFilter setup failed");
+        // The borrow must live across the await because `setup` takes `&mut
+        // self`; it is sound here because `filter_frame` is the only borrower
+        // and `busy` admits one frame at a time on the dispatcher.
+        #[expect(clippy::await_holding_refcell_ref)]
+        let setup_result = state.filter.borrow_mut().setup(&ctx).await;
+        setup_result.expect("AppliedFilter setup failed");
         state.setup_done.set(true);
     }
 
