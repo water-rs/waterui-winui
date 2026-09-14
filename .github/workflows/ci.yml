@@ -39,7 +39,9 @@ jobs:
       - run: cargo check --locked --workspace --no-default-features
       - run: cargo check --locked --workspace --all-targets
       - run: cargo clippy --locked --workspace --all-targets -- -D warnings
-      - run: cargo test --locked --workspace
+      - uses: taiki-e/install-action@nextest
+      - run: cargo nextest run --locked --workspace --no-tests warn
+      - run: cargo test --locked --workspace --doc
 
   smoke:
     name: windows-latest (smoke)
