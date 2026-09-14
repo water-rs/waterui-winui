@@ -27,6 +27,9 @@ pub(crate) mod app_shim;
 pub(crate) mod bootstrap;
 pub(crate) mod component;
 pub(crate) mod components;
+// `#[implement]` generates `IUnknown` helpers clippy's pedantic group flags.
+#[allow(clippy::inline_always, clippy::ref_as_ptr)]
+pub(crate) mod d2d;
 pub(crate) mod executor;
 #[cfg(feature = "gpu")]
 pub(crate) mod gpu;

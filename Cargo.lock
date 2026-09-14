@@ -4165,9 +4165,13 @@ version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "786a9be51d050314634e74589efcb78dac376c1f711d62cff905a7efd1c690c7"
 dependencies = [
+ "bytemuck",
  "nami",
+ "num-traits",
+ "shaderloom",
  "waterui-core",
  "waterui-graphics",
+ "wgpu",
 ]
 
 [[package]]

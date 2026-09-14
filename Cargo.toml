@@ -30,7 +30,7 @@ workspace = true
 
 [features]
 default = ["gpu"]
-gpu = ["waterui-graphics/gpu"]
+gpu = ["waterui-graphics/gpu", "waterui-shape/gpu"]
 self-contained = ["dep:windows-reactor-setup"]
 
 [target.'cfg(target_os = "windows")'.dependencies]
