@@ -209,7 +209,7 @@ fn self_contained_manifest_present() -> bool {
         _ = GetModuleHandleExW(
             FROM_ADDRESS_UNCHANGED_REFCOUNT,
             (module_manifest_has_marker as fn(*mut core::ffi::c_void) -> bool) as *const u16,
-            &mut this,
+            &raw mut this,
         );
         module_manifest_has_marker(exe) || (this != exe && module_manifest_has_marker(this))
     }
