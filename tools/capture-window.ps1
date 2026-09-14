@@ -172,6 +172,18 @@ try {
         if ([DateTime]::UtcNow -gt $deadline) { break }
         Start-Sleep -Milliseconds 100
     }
+    # The first painted sample can predate late lifecycle work (Loaded
+    # handlers, deferred selection, mid-flight transitions). Settle briefly
+    # and photograph again so the saved frame shows the finished UI.
+    if ($painted) {
+        Start-Sleep -Milliseconds 1500
+        [User32]::SetWindowPos($proc.MainWindowHandle, [IntPtr]::Zero, 0, 0, 0, 0, $swpFlags) | Out-Null
+        $bmp.Dispose()
+        $bmp = New-Object System.Drawing.Bitmap $width, $height
+        $graphics = [System.Drawing.Graphics]::FromImage($bmp)
+        $graphics.CopyFromScreen($rect.Left, $rect.Top, 0, 0, $bmp.Size)
+        $graphics.Dispose()
+    }
     $windowPng = "$OutPrefix-window.png"
     $bmp.Save($windowPng, [System.Drawing.Imaging.ImageFormat]::Png)
     $bmp.Dispose()

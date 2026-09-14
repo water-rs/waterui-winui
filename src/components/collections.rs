@@ -264,12 +264,7 @@ fn render_tab_view(
         // The tab content is a lazily built `NavigationView`; inside a tab the
         // bar collapses, matching the GTK backend which renders its content.
         let navigation_view = tab.content.build();
-        let _ = &navigation_view; // DEBUG: plain content to isolate the presenter path
-        let block = TextBlock::new().expect("TextBlock::new");
-        block
-            .SetText("DEBUG tab content")
-            .expect("TextBlock::SetText");
-        let content: UIElement = block.cast().expect("UIElement");
+        let content = renderer.render_any(navigation_view.content, env);
         item.cast::<ContentControl>()
             .expect("TabViewItem is a ContentControl")
             .SetContent(&content)
@@ -304,6 +299,7 @@ fn render_tab_view(
         .SetVerticalAlignment(VerticalAlignment::Stretch)
         .expect("SetVerticalAlignment");
 
+    let mut loaded_revoker = None;
     if let Some(index) = ids.iter().position(|id| *id == layout.selection.get()) {
         // Selection must go through `SelectedItem`: on an `ItemsSource`-bound
         // list `SelectedIndex` cannot push into the `ListView` before its
@@ -311,37 +307,45 @@ fn render_tab_view(
         tab_view
             .SetSelectedItem(&items[index])
             .expect("TabView::SetSelectedItem");
-    }
 
-    // DEBUG: log what the control sees once loaded, then re-apply selection
-    let weak_for_loaded = tab_view.downgrade().expect("weak ref");
-    let item_for_loaded = items
-        .iter()
-        .zip(&ids)
-        .find_map(|(item, id)| (*id == layout.selection.get()).then(|| item.clone()));
-    let loaded_revoker = tab_view
-        .cast::<FrameworkElement>()
-        .expect("FrameworkElement")
-        .Loaded(move |_, _| {
-            let Some(tv) = weak_for_loaded.upgrade() else {
-                tracing::info!("TabView Loaded: weak upgrade failed");
-                return;
-            };
-            tracing::info!(
-                "TabView Loaded BEFORE: SelectedIndex = {:?}, SelectedItem set = {}",
-                tv.SelectedIndex(),
-                tv.SelectedItem().is_ok()
-            );
-            if let Some(item) = &item_for_loaded {
-                let _ = tv.SetSelectedItem(item);
-            }
-            tracing::info!(
-                "TabView Loaded AFTER: SelectedIndex = {:?}, SelectedItem set = {}",
-                tv.SelectedIndex(),
-                tv.SelectedItem().is_ok()
-            );
-        })
-        .expect("Loaded");
+        // `TabView` pushes `SelectedItem` into its inner `ListView` only while
+        // the list exists, then syncs the property back from the list's
+        // current state at `OnListViewLoaded` — clobbering a pre-load
+        // selection whose push the not-yet-populated items view ignored.
+        // Re-apply once the control is loaded, and once more at low priority
+        // in case the items view only materializes after `Loaded`.
+        let weak_for_loaded = tab_view.downgrade().expect("weak ref");
+        let queue = renderer.executor().queue().clone();
+        let selected = items[index].clone();
+        loaded_revoker = Some(
+            tab_view
+                .cast::<FrameworkElement>()
+                .expect("FrameworkElement")
+                .Loaded(move |_, _| {
+                    let Some(tab_view) = weak_for_loaded.upgrade() else {
+                        return;
+                    };
+                    tab_view
+                        .SetSelectedItem(&selected)
+                        .expect("TabView::SetSelectedItem");
+                    let weak = tab_view.downgrade().expect("weak ref");
+                    let selected = selected.clone();
+                    queue
+                        .TryEnqueueWithPriority(
+                            DispatcherQueuePriority::Low,
+                            &DispatcherQueueHandler::new(move || {
+                                if let Some(tab_view) = weak.upgrade() {
+                                    tab_view
+                                        .SetSelectedItem(&selected)
+                                        .expect("TabView::SetSelectedItem");
+                                }
+                            }),
+                        )
+                        .expect("DispatcherQueue::TryEnqueueWithPriority");
+                })
+                .expect("Loaded"),
+        );
+    }
 
     let selection = layout.selection.clone();
     let ids_for_event = ids.clone();
@@ -365,7 +369,9 @@ fn render_tab_view(
         .expect("TabView::SelectionChanged");
     let element = framework(&tab_view.cast().expect("UIElement"));
     store_event_revoker(&element, revoker);
-    store_event_revoker(&element, loaded_revoker);
+    if let Some(loaded_revoker) = loaded_revoker {
+        store_event_revoker(&element, loaded_revoker);
+    }
 
     let queue = renderer.executor().queue().clone();
     let weak = tab_view.downgrade().expect("weak ref");
