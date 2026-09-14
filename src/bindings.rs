@@ -26456,6 +26456,18 @@ impl ITabView {
             ))
         }
     }
+    pub(crate) fn SetTabItemsSource<P0>(&self, value: P0) -> windows_core::Result<()>
+    where
+        P0: windows_core::Param<windows_core::IInspectable>,
+    {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetTabItemsSource)(
+                windows_core::Interface::as_raw(self),
+                value.param().abi(),
+            )
+            .ok()
+        }
+    }
     pub(crate) fn TabItems(&self) -> windows_core::Result<IVector<windows_core::IInspectable>> {
         unsafe {
             let mut result__ = core::mem::zeroed();
@@ -26595,7 +26607,10 @@ pub struct ITabView_Vtbl {
     pub RemoveTabItemsChanged:
         unsafe extern "system" fn(*mut core::ffi::c_void, i64) -> windows_core::HRESULT,
     TabItemsSource: usize,
-    SetTabItemsSource: usize,
+    pub SetTabItemsSource: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
     pub TabItems: unsafe extern "system" fn(
         *mut core::ffi::c_void,
         *mut *mut core::ffi::c_void,
