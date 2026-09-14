@@ -286,6 +286,13 @@ fn render_tab_view(
         .SetTabItemsSource(&source)
         .expect("TabView::SetTabItemsSource");
 
+    // DEBUG: fill the window slot so the content row gets real height
+    tab_view
+        .cast::<FrameworkElement>()
+        .expect("FrameworkElement")
+        .SetVerticalAlignment(VerticalAlignment::Stretch)
+        .expect("SetVerticalAlignment");
+
     // DEBUG: what does the control see once loaded into the tree?
     let weak_for_loaded = tab_view.downgrade().expect("weak ref");
     let loaded_revoker = tab_view
@@ -297,7 +304,11 @@ fn render_tab_view(
                     &tv.TabItems().expect("TabItems"),
                 );
                 let size = items.Size().expect("Size");
-                tracing::info!("TabView Loaded: TabItems size = {size}");
+                let sel_index = tv.SelectedIndex().expect("SelectedIndex");
+                let has_sel = tv.SelectedItem().is_ok();
+                tracing::info!(
+                    "TabView Loaded: TabItems size = {size}, SelectedIndex = {sel_index}, SelectedItem set = {has_sel}"
+                );
             }
         })
         .expect("Loaded");
