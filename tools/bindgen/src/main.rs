@@ -30,6 +30,8 @@ const IMPLEMENTS: &[&str] = &[
     "Microsoft.UI.Xaml.Markup.IXamlMetadataProvider",
     "Microsoft.UI.Xaml.IElementFactory",
     "Microsoft.UI.Xaml.IFrameworkElementOverrides",
+    "Windows.Graphics.IGeometrySource2D",
+    "extras.IGeometrySource2DInterop",
 ];
 
 /// Composable runtime classes the backend derives from.

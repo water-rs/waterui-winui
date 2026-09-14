@@ -1,5 +1,6 @@
 windows_core::link!("api-ms-win-appmodel-runtime-l1-1-5.dll" "system" fn AddPackageDependency(packagedependencyid : windows_core::PCWSTR, rank : i32, options : AddPackageDependencyOptions, packagedependencycontext : *mut PACKAGEDEPENDENCY_CONTEXT, packagefullname : *mut windows_core::PWSTR) -> windows_core::HRESULT);
 windows_core::link!("ole32.dll" "system" fn CoInitializeEx(pvreserved : *const core::ffi::c_void, dwcoinit : u32) -> windows_core::HRESULT);
+windows_core::link!("d2d1.dll" "system" fn D2D1CreateFactory(factorytype : D2D1_FACTORY_TYPE, riid : *const windows_core::GUID, pfactoryoptions : *const D2D1_FACTORY_OPTIONS, ppifactory : *mut *mut core::ffi::c_void) -> windows_core::HRESULT);
 windows_core::link!("kernel32.dll" "system" fn GetCurrentPackageFullName(packagefullnamelength : *mut u32, packagefullname : windows_core::PWSTR) -> i32);
 windows_core::link!("user32.dll" "system" fn GetDpiForWindow(hwnd : HWND) -> u32);
 windows_core::link!("user32.dll" "system" fn GetKeyboardState(lpkeystate : *mut u8) -> windows_core::BOOL);
@@ -3647,6 +3648,33 @@ windows_core::imp::interface_hierarchy!(
     windows_core::IUnknown,
     windows_core::IInspectable
 );
+windows_core::imp::required_hierarchy!(CompositionPath, IGeometrySource2D);
+impl CompositionPath {
+    pub(crate) fn Create<P0>(source: P0) -> windows_core::Result<Self>
+    where
+        P0: windows_core::Param<IGeometrySource2D>,
+    {
+        Self::ICompositionPathFactory(|this| unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(this).Create)(
+                windows_core::Interface::as_raw(this),
+                source.param().abi(),
+                &mut result__,
+            )
+            .and_then(|| windows_core::imp::Type::from_abi(result__))
+        })
+    }
+    fn ICompositionPathFactory<
+        R,
+        F: FnOnce(&ICompositionPathFactory) -> windows_core::Result<R>,
+    >(
+        callback: F,
+    ) -> windows_core::Result<R> {
+        static SHARED: windows_core::imp::FactoryCache<CompositionPath, ICompositionPathFactory> =
+            windows_core::imp::FactoryCache::new();
+        SHARED.call(callback)
+    }
+}
 impl windows_core::RuntimeType for CompositionPath {
     const SIGNATURE: windows_core::imp::ConstBuffer =
         windows_core::imp::ConstBuffer::for_class::<Self, ICompositionPath>();
@@ -3907,6 +3935,23 @@ impl windows_core::RuntimeName for CompositionShapeCollection {
 }
 unsafe impl Send for CompositionShapeCollection {}
 unsafe impl Sync for CompositionShapeCollection {}
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct CompositionStretch(pub i32);
+impl CompositionStretch {
+    pub const None: Self = Self(0);
+    pub const Fill: Self = Self(1);
+    pub const Uniform: Self = Self(2);
+    pub const UniformToFill: Self = Self(3);
+}
+impl windows_core::imp::TypeKind for CompositionStretch {
+    type TypeKind = windows_core::imp::CopyType;
+}
+impl windows_core::RuntimeType for CompositionStretch {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::from_slice(
+        b"enum(Microsoft.UI.Composition.CompositionStretch;i4)",
+    );
+}
 #[repr(transparent)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CompositionSurfaceBrush(windows_core::IUnknown);
@@ -4536,6 +4581,58 @@ impl windows_core::RuntimeName for CubicBezierEasingFunction {
 }
 unsafe impl Send for CubicBezierEasingFunction {}
 unsafe impl Sync for CubicBezierEasingFunction {}
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct D2D1_ARC_SEGMENT {
+    pub point: D2D1_POINT_2F,
+    pub size: D2D1_SIZE_F,
+    pub rotationangle: f32,
+    pub sweepdirection: D2D1_SWEEP_DIRECTION,
+    pub arcsize: D2D1_ARC_SIZE,
+}
+pub type D2D1_ARC_SIZE = i32;
+pub const D2D1_ARC_SIZE_LARGE: D2D1_ARC_SIZE = 1;
+pub const D2D1_ARC_SIZE_SMALL: D2D1_ARC_SIZE = 0;
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct D2D1_BEZIER_SEGMENT {
+    pub point1: D2D1_POINT_2F,
+    pub point2: D2D1_POINT_2F,
+    pub point3: D2D1_POINT_2F,
+}
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct D2D1_FACTORY_OPTIONS {
+    pub debuglevel: i32,
+}
+pub type D2D1_FACTORY_TYPE = i32;
+pub const D2D1_FACTORY_TYPE_SINGLE_THREADED: D2D1_FACTORY_TYPE = 0;
+pub type D2D1_FIGURE_BEGIN = i32;
+pub const D2D1_FIGURE_BEGIN_FILLED: D2D1_FIGURE_BEGIN = 0;
+pub type D2D1_FIGURE_END = i32;
+pub const D2D1_FIGURE_END_CLOSED: D2D1_FIGURE_END = 1;
+pub const D2D1_FIGURE_END_OPEN: D2D1_FIGURE_END = 0;
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct D2D1_POINT_2F {
+    pub x: f32,
+    pub y: f32,
+}
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct D2D1_QUADRATIC_BEZIER_SEGMENT {
+    pub point1: D2D1_POINT_2F,
+    pub point2: D2D1_POINT_2F,
+}
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct D2D1_SIZE_F {
+    pub width: f32,
+    pub height: f32,
+}
+pub type D2D1_SWEEP_DIRECTION = i32;
+pub const D2D1_SWEEP_DIRECTION_CLOCKWISE: D2D1_SWEEP_DIRECTION = 1;
+pub const D2D1_SWEEP_DIRECTION_COUNTER_CLOCKWISE: D2D1_SWEEP_DIRECTION = 0;
 pub type DPI_AWARENESS_CONTEXT = *mut core::ffi::c_void;
 pub const DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2: DPI_AWARENESS_CONTEXT = -4 as _;
 #[repr(transparent)]
@@ -11547,6 +11644,24 @@ pub struct ICompositionPath_Vtbl {
     pub base__: windows_core::IInspectable_Vtbl,
 }
 windows_core::imp::define_interface!(
+    ICompositionPathFactory,
+    ICompositionPathFactory_Vtbl,
+    0x87143312_d280_51d2_b75b_5d76ea86c285
+);
+impl windows_core::RuntimeType for ICompositionPathFactory {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct ICompositionPathFactory_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    pub Create: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
+        *mut *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(
     ICompositionPathGeometry,
     ICompositionPathGeometry_Vtbl,
     0x0f6e6b82_060b_571e_b849_ab8e0d723962
@@ -11848,9 +11963,43 @@ impl windows_core::RuntimeType for ICompositionViewBox {
     const SIGNATURE: windows_core::imp::ConstBuffer =
         windows_core::imp::ConstBuffer::for_interface::<Self>();
 }
+impl ICompositionViewBox {
+    pub(crate) fn SetSize(&self, value: windows_numerics::Vector2) -> windows_core::Result<()> {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetSize)(
+                windows_core::Interface::as_raw(self),
+                value,
+            )
+            .ok()
+        }
+    }
+    pub(crate) fn SetStretch(&self, value: CompositionStretch) -> windows_core::Result<()> {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetStretch)(
+                windows_core::Interface::as_raw(self),
+                value,
+            )
+            .ok()
+        }
+    }
+}
 #[repr(C)]
 pub struct ICompositionViewBox_Vtbl {
     pub base__: windows_core::IInspectable_Vtbl,
+    HorizontalAlignmentRatio: usize,
+    SetHorizontalAlignmentRatio: usize,
+    Offset: usize,
+    SetOffset: usize,
+    Size: usize,
+    pub SetSize: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        windows_numerics::Vector2,
+    ) -> windows_core::HRESULT,
+    Stretch: usize,
+    pub SetStretch: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        CompositionStretch,
+    ) -> windows_core::HRESULT,
 }
 windows_core::imp::define_interface!(
     ICompositor,
@@ -12267,6 +12416,33 @@ impl ICompositor5 {
             .and_then(|| windows_core::imp::Type::from_abi(result__))
         }
     }
+    pub(crate) fn CreatePathGeometry(&self) -> windows_core::Result<CompositionPathGeometry> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).CreatePathGeometry)(
+                windows_core::Interface::as_raw(self),
+                &mut result__,
+            )
+            .and_then(|| windows_core::imp::Type::from_abi(result__))
+        }
+    }
+    pub(crate) fn CreatePathGeometryWithPath<P0>(
+        &self,
+        path: P0,
+    ) -> windows_core::Result<CompositionPathGeometry>
+    where
+        P0: windows_core::Param<CompositionPath>,
+    {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).CreatePathGeometryWithPath)(
+                windows_core::Interface::as_raw(self),
+                path.param().abi(),
+                &mut result__,
+            )
+            .and_then(|| windows_core::imp::Type::from_abi(result__))
+        }
+    }
     pub(crate) fn CreateRectangleGeometry(
         &self,
     ) -> windows_core::Result<CompositionRectangleGeometry> {
@@ -12328,8 +12504,15 @@ pub struct ICompositor5_Vtbl {
         *mut *mut core::ffi::c_void,
     ) -> windows_core::HRESULT,
     CreateLineGeometry: usize,
-    CreatePathGeometry: usize,
-    CreatePathGeometryWithPath: usize,
+    pub CreatePathGeometry: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
+    pub CreatePathGeometryWithPath: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
+        *mut *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
     CreatePathKeyFrameAnimation: usize,
     pub CreateRectangleGeometry: unsafe extern "system" fn(
         *mut core::ffi::c_void,
@@ -12982,6 +13165,227 @@ impl windows_core::RuntimeType for ICubicBezierEasingFunction {
 #[repr(C)]
 pub struct ICubicBezierEasingFunction_Vtbl {
     pub base__: windows_core::IInspectable_Vtbl,
+}
+windows_core::imp::define_interface!(
+    ID2D1Factory,
+    ID2D1Factory_Vtbl,
+    0x06152247_6f50_465a_9245_118bfd3b6007
+);
+windows_core::imp::interface_hierarchy!(ID2D1Factory, windows_core::IUnknown);
+impl ID2D1Factory {
+    pub(crate) unsafe fn CreatePathGeometry(
+        &self,
+        pathgeometry: *mut *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT {
+        unsafe {
+            (windows_core::Interface::vtable(self).CreatePathGeometry)(
+                windows_core::Interface::as_raw(self),
+                pathgeometry as _,
+            )
+        }
+    }
+}
+#[repr(C)]
+pub struct ID2D1Factory_Vtbl {
+    pub base__: windows_core::IUnknown_Vtbl,
+    ReloadSystemMetrics: usize,
+    GetDesktopDpi: usize,
+    CreateRectangleGeometry: usize,
+    CreateRoundedRectangleGeometry: usize,
+    CreateEllipseGeometry: usize,
+    CreateGeometryGroup: usize,
+    CreateTransformedGeometry: usize,
+    pub CreatePathGeometry: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(
+    ID2D1Geometry,
+    ID2D1Geometry_Vtbl,
+    0x2cd906a1_12e2_11dc_9fed_001143a055f9
+);
+impl core::ops::Deref for ID2D1Geometry {
+    type Target = ID2D1Resource;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+windows_core::imp::interface_hierarchy!(ID2D1Geometry, windows_core::IUnknown, ID2D1Resource);
+#[repr(C)]
+pub struct ID2D1Geometry_Vtbl {
+    pub base__: ID2D1Resource_Vtbl,
+    GetBounds: usize,
+    GetWidenedBounds: usize,
+    StrokeContainsPoint: usize,
+    FillContainsPoint: usize,
+    CompareWithGeometry: usize,
+    Simplify: usize,
+    Tessellate: usize,
+    CombineWithGeometry: usize,
+    Outline: usize,
+    ComputeArea: usize,
+    ComputeLength: usize,
+    ComputePointAtLength: usize,
+    Widen: usize,
+}
+windows_core::imp::define_interface!(
+    ID2D1GeometrySink,
+    ID2D1GeometrySink_Vtbl,
+    0x2cd9069f_12e2_11dc_9fed_001143a055f9
+);
+impl core::ops::Deref for ID2D1GeometrySink {
+    type Target = ID2D1SimplifiedGeometrySink;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+windows_core::imp::interface_hierarchy!(
+    ID2D1GeometrySink,
+    windows_core::IUnknown,
+    ID2D1SimplifiedGeometrySink
+);
+impl ID2D1GeometrySink {
+    pub(crate) unsafe fn AddLine(&self, point: D2D1_POINT_2F) {
+        unsafe {
+            (windows_core::Interface::vtable(self).AddLine)(
+                windows_core::Interface::as_raw(self),
+                point,
+            );
+        }
+    }
+    pub(crate) unsafe fn AddBezier(&self, bezier: *const D2D1_BEZIER_SEGMENT) {
+        unsafe {
+            (windows_core::Interface::vtable(self).AddBezier)(
+                windows_core::Interface::as_raw(self),
+                bezier,
+            );
+        }
+    }
+    pub(crate) unsafe fn AddQuadraticBezier(&self, bezier: *const D2D1_QUADRATIC_BEZIER_SEGMENT) {
+        unsafe {
+            (windows_core::Interface::vtable(self).AddQuadraticBezier)(
+                windows_core::Interface::as_raw(self),
+                bezier,
+            );
+        }
+    }
+    pub(crate) unsafe fn AddArc(&self, arc: *const D2D1_ARC_SEGMENT) {
+        unsafe {
+            (windows_core::Interface::vtable(self).AddArc)(
+                windows_core::Interface::as_raw(self),
+                arc,
+            );
+        }
+    }
+}
+#[repr(C)]
+pub struct ID2D1GeometrySink_Vtbl {
+    pub base__: ID2D1SimplifiedGeometrySink_Vtbl,
+    pub AddLine: unsafe extern "system" fn(*mut core::ffi::c_void, D2D1_POINT_2F),
+    pub AddBezier: unsafe extern "system" fn(*mut core::ffi::c_void, *const D2D1_BEZIER_SEGMENT),
+    pub AddQuadraticBezier:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *const D2D1_QUADRATIC_BEZIER_SEGMENT),
+    AddQuadraticBeziers: usize,
+    pub AddArc: unsafe extern "system" fn(*mut core::ffi::c_void, *const D2D1_ARC_SEGMENT),
+}
+windows_core::imp::define_interface!(
+    ID2D1PathGeometry,
+    ID2D1PathGeometry_Vtbl,
+    0x2cd906a5_12e2_11dc_9fed_001143a055f9
+);
+impl core::ops::Deref for ID2D1PathGeometry {
+    type Target = ID2D1Geometry;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+windows_core::imp::interface_hierarchy!(
+    ID2D1PathGeometry,
+    windows_core::IUnknown,
+    ID2D1Resource,
+    ID2D1Geometry
+);
+impl ID2D1PathGeometry {
+    pub(crate) unsafe fn Open(
+        &self,
+        geometrysink: *mut *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT {
+        unsafe {
+            (windows_core::Interface::vtable(self).Open)(
+                windows_core::Interface::as_raw(self),
+                geometrysink as _,
+            )
+        }
+    }
+}
+#[repr(C)]
+pub struct ID2D1PathGeometry_Vtbl {
+    pub base__: ID2D1Geometry_Vtbl,
+    pub Open: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
+    Stream: usize,
+    GetSegmentCount: usize,
+    GetFigureCount: usize,
+}
+windows_core::imp::define_interface!(
+    ID2D1Resource,
+    ID2D1Resource_Vtbl,
+    0x2cd90691_12e2_11dc_9fed_001143a055f9
+);
+windows_core::imp::interface_hierarchy!(ID2D1Resource, windows_core::IUnknown);
+#[repr(C)]
+pub struct ID2D1Resource_Vtbl {
+    pub base__: windows_core::IUnknown_Vtbl,
+    GetFactory: usize,
+}
+windows_core::imp::define_interface!(
+    ID2D1SimplifiedGeometrySink,
+    ID2D1SimplifiedGeometrySink_Vtbl,
+    0x2cd9069e_12e2_11dc_9fed_001143a055f9
+);
+windows_core::imp::interface_hierarchy!(ID2D1SimplifiedGeometrySink, windows_core::IUnknown);
+impl ID2D1SimplifiedGeometrySink {
+    pub(crate) unsafe fn BeginFigure(
+        &self,
+        startpoint: D2D1_POINT_2F,
+        figurebegin: D2D1_FIGURE_BEGIN,
+    ) {
+        unsafe {
+            (windows_core::Interface::vtable(self).BeginFigure)(
+                windows_core::Interface::as_raw(self),
+                startpoint,
+                figurebegin,
+            );
+        }
+    }
+    pub(crate) unsafe fn EndFigure(&self, figureend: D2D1_FIGURE_END) {
+        unsafe {
+            (windows_core::Interface::vtable(self).EndFigure)(
+                windows_core::Interface::as_raw(self),
+                figureend,
+            );
+        }
+    }
+    pub(crate) unsafe fn Close(&self) -> windows_core::HRESULT {
+        unsafe {
+            (windows_core::Interface::vtable(self).Close)(windows_core::Interface::as_raw(self))
+        }
+    }
+}
+#[repr(C)]
+pub struct ID2D1SimplifiedGeometrySink_Vtbl {
+    pub base__: windows_core::IUnknown_Vtbl,
+    SetFillMode: usize,
+    SetSegmentFlags: usize,
+    pub BeginFigure:
+        unsafe extern "system" fn(*mut core::ffi::c_void, D2D1_POINT_2F, D2D1_FIGURE_BEGIN),
+    AddLines: usize,
+    AddBeziers: usize,
+    pub EndFigure: unsafe extern "system" fn(*mut core::ffi::c_void, D2D1_FIGURE_END),
+    pub Close: unsafe extern "system" fn(*mut core::ffi::c_void) -> windows_core::HRESULT,
 }
 pub const IDYES: i32 = 6;
 windows_core::imp::define_interface!(
@@ -15777,6 +16181,113 @@ impl windows_core::RuntimeType for IGeometry {
 pub struct IGeometry_Vtbl {
     pub base__: windows_core::IInspectable_Vtbl,
 }
+windows_core::imp::define_interface!(
+    IGeometrySource2D,
+    IGeometrySource2D_Vtbl,
+    0xcaff7902_670c_4181_a624_da977203b845
+);
+impl windows_core::RuntimeType for IGeometrySource2D {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_interface::<Self>();
+    const NAME: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::from_slice(b"Windows.Graphics.IGeometrySource2D");
+}
+windows_core::imp::interface_hierarchy!(
+    IGeometrySource2D,
+    windows_core::IUnknown,
+    windows_core::IInspectable
+);
+impl windows_core::RuntimeName for IGeometrySource2D {
+    const NAME: &'static str = "Windows.Graphics.IGeometrySource2D";
+}
+pub trait IGeometrySource2D_Impl: windows_core::IUnknownImpl {}
+impl IGeometrySource2D_Vtbl {
+    pub const fn new<Identity: IGeometrySource2D_Impl, const OFFSET: isize>() -> Self {
+        Self {
+            base__: windows_core::IInspectable_Vtbl::new::<Identity, IGeometrySource2D, OFFSET>(),
+        }
+    }
+    pub fn matches(iid: &windows_core::GUID) -> bool {
+        iid == &<IGeometrySource2D as windows_core::Interface>::IID
+    }
+}
+#[repr(C)]
+pub struct IGeometrySource2D_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+}
+windows_core::imp::define_interface!(
+    IGeometrySource2DInterop,
+    IGeometrySource2DInterop_Vtbl,
+    0x0657af73_53fd_47cf_84ff_c8492d2a80a3
+);
+windows_core::imp::interface_hierarchy!(IGeometrySource2DInterop, windows_core::IUnknown);
+#[repr(C)]
+pub struct IGeometrySource2DInterop_Vtbl {
+    pub base__: windows_core::IUnknown_Vtbl,
+    pub GetGeometry: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
+    pub TryGetGeometryUsingFactory: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
+        *mut *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
+}
+pub trait IGeometrySource2DInterop_Impl: windows_core::IUnknownImpl {
+    fn GetGeometry(&self, value: *mut *mut core::ffi::c_void) -> windows_core::Result<()>;
+    fn TryGetGeometryUsingFactory(
+        &self,
+        factory: *mut core::ffi::c_void,
+        value: *mut *mut core::ffi::c_void,
+    ) -> windows_core::Result<()>;
+}
+impl IGeometrySource2DInterop_Vtbl {
+    pub const fn new<Identity: IGeometrySource2DInterop_Impl, const OFFSET: isize>() -> Self {
+        unsafe extern "system" fn GetGeometry<
+            Identity: IGeometrySource2DInterop_Impl,
+            const OFFSET: isize,
+        >(
+            this: *mut core::ffi::c_void,
+            value: *mut *mut core::ffi::c_void,
+        ) -> windows_core::HRESULT {
+            unsafe {
+                let this: &Identity =
+                    &*((this as *const *const ()).offset(OFFSET) as *const Identity);
+                IGeometrySource2DInterop_Impl::GetGeometry(this, core::mem::transmute_copy(&value))
+                    .into()
+            }
+        }
+        unsafe extern "system" fn TryGetGeometryUsingFactory<
+            Identity: IGeometrySource2DInterop_Impl,
+            const OFFSET: isize,
+        >(
+            this: *mut core::ffi::c_void,
+            factory: *mut core::ffi::c_void,
+            value: *mut *mut core::ffi::c_void,
+        ) -> windows_core::HRESULT {
+            unsafe {
+                let this: &Identity =
+                    &*((this as *const *const ()).offset(OFFSET) as *const Identity);
+                IGeometrySource2DInterop_Impl::TryGetGeometryUsingFactory(
+                    this,
+                    core::mem::transmute_copy(&factory),
+                    core::mem::transmute_copy(&value),
+                )
+                .into()
+            }
+        }
+        Self {
+            base__: windows_core::IUnknown_Vtbl::new::<Identity, OFFSET>(),
+            GetGeometry: GetGeometry::<Identity, OFFSET>,
+            TryGetGeometryUsingFactory: TryGetGeometryUsingFactory::<Identity, OFFSET>,
+        }
+    }
+    pub fn matches(iid: &windows_core::GUID) -> bool {
+        iid == &<IGeometrySource2DInterop as windows_core::Interface>::IID
+    }
+}
+impl windows_core::RuntimeName for IGeometrySource2DInterop {}
 windows_core::imp::define_interface!(
     IGettingFocusEventArgs,
     IGettingFocusEventArgs_Vtbl,
