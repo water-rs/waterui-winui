@@ -272,20 +272,17 @@ if ($bench) {
         # runs so artifacts can be concatenated into a trend series.
         $benchSha = ''
         try { $benchSha = (git -C $repo rev-parse HEAD).Trim() } catch { }
-        $metricsBase = [ordered]@{
-            run_at = [DateTime]::UtcNow.ToString('o')
-            sha    = $benchSha
-        }
+        $runAt = [DateTime]::UtcNow.ToString('o')
         $crateDir = Join-Path $genRoot $bench.Id
         $benchLog = Join-Path $OutDir "$($bench.Id).release-build.log"
         cargo build --release --manifest-path (Join-Path $crateDir 'Cargo.toml') *> $benchLog
         $releaseExe = Join-Path $env:CARGO_TARGET_DIR "release\runner-$($bench.Id).exe"
         if ($LASTEXITCODE -ne 0 -or -not (Test-Path $releaseExe)) {
             Write-Host "::warning::release benchmark build failed, see $benchLog"
-            $metrics = $metricsBase.Clone()
-            $metrics.example = $bench.Id
-            $metrics.build = 'release'
-            $metrics.result = 'build failed'
+            $metrics = [ordered]@{
+                run_at = $runAt; sha = $benchSha
+                example = $bench.Id; build = 'release'; result = 'build failed'
+            }
         } else {
             $releaseDir = Split-Path $releaseExe -Parent
             # The runner's build script stages the self-contained runtime
@@ -317,11 +314,12 @@ if ($bench) {
                 $r = & "$PSScriptRoot\capture-window.ps1" -Exe $releaseExe -OutPrefix $benchPrefix `
                     -StdoutLog "$benchPrefix.stdout.log" -StderrLog "$benchPrefix.stderr.log" `
                     -WindowTimeoutSec 60 -PaintTimeoutSec 60
-                $metrics = $metricsBase.Clone()
-                $metrics.example = $bench.Id
-                $metrics.build = 'release'
-                $metrics.painted = $r.Painted
-                foreach ($kv in ([ordered]@{
+                $metrics = [ordered]@{
+                    run_at              = $runAt
+                    sha                 = $benchSha
+                    example             = $bench.Id
+                    build               = 'release'
+                    painted             = $r.Painted
                     exe_bytes           = $exeBytes
                     runtime_bytes       = $runtimeBytes
                     bundle_bytes        = $exeBytes + $runtimeBytes
@@ -329,16 +327,15 @@ if ($bench) {
                     painted_ms          = $r.PaintedMs
                     peak_working_set_mb = $r.PeakWorkingSetMB
                     private_bytes_mb    = $r.PrivateBytesMB
-                }).GetEnumerator()) { $metrics[$kv.Key] = $kv.Value }
+                }
             } catch {
                 Write-Host "::warning::release benchmark run failed: $_"
-                $metrics = $metricsBase.Clone()
-                $metrics.example = $bench.Id
-                $metrics.build = 'release'
-                $metrics.result = 'run failed'
-                $metrics.exe_bytes = $exeBytes
-                $metrics.runtime_bytes = $runtimeBytes
-                $metrics.bundle_bytes = $exeBytes + $runtimeBytes
+                $metrics = [ordered]@{
+                    run_at = $runAt; sha = $benchSha
+                    example = $bench.Id; build = 'release'; result = 'run failed'
+                    exe_bytes = $exeBytes; runtime_bytes = $runtimeBytes
+                    bundle_bytes = $exeBytes + $runtimeBytes
+                }
             }
         }
     } catch {
