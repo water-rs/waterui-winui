@@ -22,6 +22,215 @@ mod extras {
         fn ResumeDraw(&self) -> HRESULT;
     }
 
+    // Direct2D path geometry interop, sourced from d2d1.h and
+    // windows.graphics.interop.h (Windows SDK). Each interface declares its
+    // real methods in vtable order; members the backend never calls use
+    // opaque `void`/`i32` parameters, and `ID2D1Factory` stops at
+    // `CreatePathGeometry` since later members are unreachable.
+
+    #[guid(0x0657af73_53fd_47cf_84ff_c8492d2a80a3)]
+    interface IGeometrySource2DInterop : Windows::Win32::IUnknown {
+        fn GetGeometry(&self, value: *mut *mut void) -> HRESULT;
+        fn TryGetGeometryUsingFactory(&self, factory: *mut void, value: *mut *mut void) -> HRESULT;
+    }
+
+    #[repr(i32)]
+    enum D2D1_FACTORY_TYPE {
+        D2D1_FACTORY_TYPE_SINGLE_THREADED = 0,
+        D2D1_FACTORY_TYPE_MULTI_THREADED = 1,
+    }
+
+    #[repr(i32)]
+    enum D2D1_FILL_MODE {
+        D2D1_FILL_MODE_ALTERNATE = 0,
+        D2D1_FILL_MODE_WINDING = 1,
+    }
+
+    #[repr(i32)]
+    enum D2D1_PATH_SEGMENT {
+        D2D1_PATH_SEGMENT_NONE = 0,
+        D2D1_PATH_SEGMENT_FORCE_UNSTROKED = 1,
+        D2D1_PATH_SEGMENT_FORCE_ROUND_LINE_JOIN = 2,
+    }
+
+    #[repr(i32)]
+    enum D2D1_FIGURE_BEGIN {
+        D2D1_FIGURE_BEGIN_FILLED = 0,
+        D2D1_FIGURE_BEGIN_HOLLOW = 1,
+    }
+
+    #[repr(i32)]
+    enum D2D1_FIGURE_END {
+        D2D1_FIGURE_END_OPEN = 0,
+        D2D1_FIGURE_END_CLOSED = 1,
+    }
+
+    #[repr(i32)]
+    enum D2D1_SWEEP_DIRECTION {
+        D2D1_SWEEP_DIRECTION_COUNTER_CLOCKWISE = 0,
+        D2D1_SWEEP_DIRECTION_CLOCKWISE = 1,
+    }
+
+    #[repr(i32)]
+    enum D2D1_ARC_SIZE {
+        D2D1_ARC_SIZE_SMALL = 0,
+        D2D1_ARC_SIZE_LARGE = 1,
+    }
+
+    #[repr(i32)]
+    enum D2D1_COMBINE_MODE {
+        D2D1_COMBINE_MODE_UNION = 0,
+        D2D1_COMBINE_MODE_INTERSECT = 1,
+        D2D1_COMBINE_MODE_XOR = 2,
+        D2D1_COMBINE_MODE_EXCLUDE = 3,
+    }
+
+    #[repr(i32)]
+    enum D2D1_GEOMETRY_RELATION {
+        D2D1_GEOMETRY_RELATION_UNKNOWN = 0,
+        D2D1_GEOMETRY_RELATION_DISJOINT = 1,
+        D2D1_GEOMETRY_RELATION_IS_CONTAINED = 2,
+        D2D1_GEOMETRY_RELATION_CONTAINS = 3,
+        D2D1_GEOMETRY_RELATION_OVERLAP = 4,
+    }
+
+    #[repr(i32)]
+    enum D2D1_GEOMETRY_SIMPLIFICATION_OPTION {
+        D2D1_GEOMETRY_SIMPLIFICATION_OPTION_CUBICS_AND_LINES = 0,
+        D2D1_GEOMETRY_SIMPLIFICATION_OPTION_LINES = 1,
+    }
+
+    struct D2D1_POINT_2F {
+        x: f32,
+        y: f32,
+    }
+
+    struct D2D1_SIZE_F {
+        width: f32,
+        height: f32,
+    }
+
+    struct D2D1_RECT_F {
+        left: f32,
+        top: f32,
+        right: f32,
+        bottom: f32,
+    }
+
+    struct D2D1_ROUNDED_RECT {
+        rect: D2D1_RECT_F,
+        radiusx: f32,
+        radiusy: f32,
+    }
+
+    struct D2D1_ELLIPSE {
+        point: D2D1_POINT_2F,
+        radiusx: f32,
+        radiusy: f32,
+    }
+
+    struct D2D1_MATRIX_3X2_F {
+        _11: f32,
+        _12: f32,
+        _21: f32,
+        _22: f32,
+        _31: f32,
+        _32: f32,
+    }
+
+    struct D2D1_BEZIER_SEGMENT {
+        point1: D2D1_POINT_2F,
+        point2: D2D1_POINT_2F,
+        point3: D2D1_POINT_2F,
+    }
+
+    struct D2D1_QUADRATIC_BEZIER_SEGMENT {
+        point1: D2D1_POINT_2F,
+        point2: D2D1_POINT_2F,
+    }
+
+    struct D2D1_ARC_SEGMENT {
+        point: D2D1_POINT_2F,
+        size: D2D1_SIZE_F,
+        rotationangle: f32,
+        sweepdirection: D2D1_SWEEP_DIRECTION,
+        arcsize: D2D1_ARC_SIZE,
+    }
+
+    struct D2D1_FACTORY_OPTIONS {
+        debuglevel: i32,
+    }
+
+    #[library("d2d1.dll")]
+    extern fn D2D1CreateFactory(
+        factorytype: D2D1_FACTORY_TYPE,
+        riid: *const Windows::Win32::GUID,
+        pfactoryoptions: *const D2D1_FACTORY_OPTIONS,
+        ppifactory: *mut *mut void,
+    ) -> HRESULT;
+
+    #[guid(0x2cd90691_12e2_11dc_9fed_001143a055f9)]
+    interface ID2D1Resource : Windows::Win32::IUnknown {
+        fn GetFactory(&self, factory: *mut *mut void);
+    }
+
+    #[guid(0x2cd9069e_12e2_11dc_9fed_001143a055f9)]
+    interface ID2D1SimplifiedGeometrySink : Windows::Win32::IUnknown {
+        fn SetFillMode(&self, fillmode: D2D1_FILL_MODE);
+        fn SetSegmentFlags(&self, vertexflags: D2D1_PATH_SEGMENT);
+        fn BeginFigure(&self, startpoint: D2D1_POINT_2F, figurebegin: D2D1_FIGURE_BEGIN);
+        fn AddLines(&self, points: *const D2D1_POINT_2F, pointscount: u32);
+        fn AddBeziers(&self, beziers: *const D2D1_BEZIER_SEGMENT, bezierscount: u32);
+        fn EndFigure(&self, figureend: D2D1_FIGURE_END);
+        fn Close(&self) -> HRESULT;
+    }
+
+    #[guid(0x2cd9069f_12e2_11dc_9fed_001143a055f9)]
+    interface ID2D1GeometrySink : ID2D1SimplifiedGeometrySink {
+        fn AddLine(&self, point: D2D1_POINT_2F);
+        fn AddBezier(&self, bezier: *const D2D1_BEZIER_SEGMENT);
+        fn AddQuadraticBezier(&self, bezier: *const D2D1_QUADRATIC_BEZIER_SEGMENT);
+        fn AddQuadraticBeziers(&self, beziers: *const D2D1_QUADRATIC_BEZIER_SEGMENT, bezierscount: u32);
+        fn AddArc(&self, arc: *const D2D1_ARC_SEGMENT);
+    }
+
+    #[guid(0x2cd906a1_12e2_11dc_9fed_001143a055f9)]
+    interface ID2D1Geometry : ID2D1Resource {
+        fn GetBounds(&self, worldtransform: *const D2D1_MATRIX_3X2_F, bounds: *mut D2D1_RECT_F) -> HRESULT;
+        fn GetWidenedBounds(&self, strokewidth: f32, strokestyle: *mut void, worldtransform: *const D2D1_MATRIX_3X2_F, flatteningtolerance: f32, bounds: *mut D2D1_RECT_F) -> HRESULT;
+        fn StrokeContainsPoint(&self, point: D2D1_POINT_2F, strokewidth: f32, strokestyle: *mut void, worldtransform: *const D2D1_MATRIX_3X2_F, flatteningtolerance: f32, contains: *mut i32) -> HRESULT;
+        fn FillContainsPoint(&self, point: D2D1_POINT_2F, worldtransform: *const D2D1_MATRIX_3X2_F, flatteningtolerance: f32, contains: *mut i32) -> HRESULT;
+        fn CompareWithGeometry(&self, inputgeometry: *mut void, inputgeometrytransform: *const D2D1_MATRIX_3X2_F, flatteningtolerance: f32, relation: *mut D2D1_GEOMETRY_RELATION) -> HRESULT;
+        fn Simplify(&self, simplificationoption: D2D1_GEOMETRY_SIMPLIFICATION_OPTION, worldtransform: *const D2D1_MATRIX_3X2_F, flatteningtolerance: f32, geometrysink: *mut void) -> HRESULT;
+        fn Tessellate(&self, worldtransform: *const D2D1_MATRIX_3X2_F, flatteningtolerance: f32, tessellationsink: *mut void) -> HRESULT;
+        fn CombineWithGeometry(&self, inputgeometry: *mut void, combinemode: D2D1_COMBINE_MODE, inputgeometrytransform: *const D2D1_MATRIX_3X2_F, flatteningtolerance: f32, geometrysink: *mut void) -> HRESULT;
+        fn Outline(&self, worldtransform: *const D2D1_MATRIX_3X2_F, flatteningtolerance: f32, geometrysink: *mut void) -> HRESULT;
+        fn ComputeArea(&self, worldtransform: *const D2D1_MATRIX_3X2_F, flatteningtolerance: f32, area: *mut f32) -> HRESULT;
+        fn ComputeLength(&self, worldtransform: *const D2D1_MATRIX_3X2_F, flatteningtolerance: f32, length: *mut f32) -> HRESULT;
+        fn ComputePointAtLength(&self, length: f32, worldtransform: *const D2D1_MATRIX_3X2_F, flatteningtolerance: f32, point: *mut D2D1_POINT_2F, unittangentvector: *mut D2D1_POINT_2F) -> HRESULT;
+        fn Widen(&self, strokewidth: f32, strokestyle: *mut void, worldtransform: *const D2D1_MATRIX_3X2_F, flatteningtolerance: f32, geometrysink: *mut void) -> HRESULT;
+    }
+
+    #[guid(0x2cd906a5_12e2_11dc_9fed_001143a055f9)]
+    interface ID2D1PathGeometry : ID2D1Geometry {
+        fn Open(&self, geometrysink: *mut *mut void) -> HRESULT;
+        fn Stream(&self, geometrysink: *mut void) -> HRESULT;
+        fn GetSegmentCount(&self, count: *mut u32) -> HRESULT;
+        fn GetFigureCount(&self, count: *mut u32) -> HRESULT;
+    }
+
+    #[guid(0x06152247_6f50_465a_9245_118bfd3b6007)]
+    interface ID2D1Factory : Windows::Win32::IUnknown {
+        fn ReloadSystemMetrics(&self) -> HRESULT;
+        fn GetDesktopDpi(&self, dpix: *mut f32, dpiy: *mut f32);
+        fn CreateRectangleGeometry(&self, rectangle: *const D2D1_RECT_F, rectanglegeometry: *mut *mut void) -> HRESULT;
+        fn CreateRoundedRectangleGeometry(&self, roundedrectangle: *const D2D1_ROUNDED_RECT, roundedrectanglegeometry: *mut *mut void) -> HRESULT;
+        fn CreateEllipseGeometry(&self, ellipse: *const D2D1_ELLIPSE, ellipsegeometry: *mut *mut void) -> HRESULT;
+        fn CreateGeometryGroup(&self, fillmode: D2D1_FILL_MODE, geometries: *const *const void, geometriescount: u32, geometrygroup: *mut *mut void) -> HRESULT;
+        fn CreateTransformedGeometry(&self, sourcegeometry: *mut void, transform: *const D2D1_MATRIX_3X2_F, transformedgeometry: *mut *mut void) -> HRESULT;
+        fn CreatePathGeometry(&self, pathgeometry: *mut *mut void) -> HRESULT;
+    }
+
     // Sourced from Microsoft.WindowsAppSDK.Runtime 2.4.0
 
     const WINDOWSAPPSDK_RUNTIME_VERSION_MAJOR: u32 = 2;

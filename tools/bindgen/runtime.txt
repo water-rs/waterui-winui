@@ -162,6 +162,18 @@ Windows::Win32::SW_SHOWNORMAL
 Windows::Win32::TryCreatePackageDependency
 extras::ISwapChainPanelNative::SetSwapChain
 extras::IWindowNative::get_WindowHandle
+extras::D2D1CreateFactory
+extras::ID2D1Factory::CreatePathGeometry
+extras::ID2D1PathGeometry::Open
+extras::ID2D1SimplifiedGeometrySink::{BeginFigure, EndFigure, Close}
+extras::ID2D1GeometrySink::{AddLine, AddBezier, AddQuadraticBezier, AddArc}
+extras::IGeometrySource2DInterop::{}
+extras::D2D1_FACTORY_TYPE::D2D1_FACTORY_TYPE_SINGLE_THREADED
+extras::D2D1_FIGURE_BEGIN::D2D1_FIGURE_BEGIN_FILLED
+extras::D2D1_FIGURE_END::{D2D1_FIGURE_END_OPEN, D2D1_FIGURE_END_CLOSED}
+extras::D2D1_SWEEP_DIRECTION::{D2D1_SWEEP_DIRECTION_CLOCKWISE, D2D1_SWEEP_DIRECTION_COUNTER_CLOCKWISE}
+extras::D2D1_ARC_SIZE::{D2D1_ARC_SIZE_SMALL, D2D1_ARC_SIZE_LARGE}
+Windows::Graphics::IGeometrySource2D::{}
 extras::WINDOWSAPPSDK_RUNTIME_VERSION_UINT64
 extras::WINDOWSAPPSDK_RUNTIME_VERSION_MAJOR
 extras::WINDOWSAPPSDK_RUNTIME_VERSION_MINOR
@@ -196,7 +208,10 @@ Microsoft::UI::Xaml::IUIElement::{put_Shadow, get_Shadow, get_Translation, get_R
 Microsoft::UI::Composition::ICompositor::{CreateScalarKeyFrameAnimation, CreateVector3KeyFrameAnimation, CreateCubicBezierEasingFunction, CreateLinearEasingFunction, CreateExpressionAnimation, CreateScopedBatch, CreatePropertySet, CreateSpriteVisual, CreateColorBrush, CreateInsetClip, CreateContainerVisual, CreateColorKeyFrameAnimation}
 Microsoft::UI::Composition::ICompositor2::{CreateDropShadow, CreateBackdropBrush, CreateAnimationGroup, CreateImplicitAnimationCollection, CreateMaskBrush, CreateLayerVisual}
 Microsoft::UI::Composition::ICompositor4::{CreateColorGradientStop, CreateLinearGradientBrush, CreateSpringScalarAnimation, CreateSpringVector3Animation}
-Microsoft::UI::Composition::ICompositor5::{CreateEllipseGeometry, CreateRoundedRectangleGeometry, CreateRectangleGeometry, CreateViewBox, CreateShapeVisual}
+Microsoft::UI::Composition::ICompositor5::{CreateEllipseGeometry, CreateRoundedRectangleGeometry, CreateRectangleGeometry, CreatePathGeometry, CreatePathGeometryWithPath, CreateViewBox, CreateShapeVisual}
+Microsoft::UI::Composition::CompositionPath::Create
+Microsoft::UI::Composition::ICompositionViewBox::{put_Size, put_Stretch}
+Microsoft::UI::Composition::CompositionStretch::{None, Fill, Uniform, UniformToFill}
 Microsoft::UI::Composition::ICompositor6::{CreateGeometricClip, CreateRedirectVisual}
 Microsoft::UI::Composition::ICompositionObject::{get_Compositor, get_Properties, StartAnimation, StopAnimation}
 Microsoft::UI::Composition::ICompositionObject2::{get_ImplicitAnimations, put_ImplicitAnimations, StartAnimationGroup, StopAnimationGroup}
