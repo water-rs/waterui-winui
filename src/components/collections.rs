@@ -313,24 +313,33 @@ fn render_tab_view(
             .expect("TabView::SetSelectedItem");
     }
 
-    // DEBUG: log what the control sees once loaded
+    // DEBUG: log what the control sees once loaded, then re-apply selection
     let weak_for_loaded = tab_view.downgrade().expect("weak ref");
+    let item_for_loaded = items
+        .iter()
+        .zip(&ids)
+        .find_map(|(item, id)| (*id == layout.selection.get()).then(|| item.clone()));
     let loaded_revoker = tab_view
         .cast::<FrameworkElement>()
         .expect("FrameworkElement")
         .Loaded(move |_, _| {
-            if let Some(tv) = weak_for_loaded.upgrade() {
-                let sel_index = tv.SelectedIndex().expect("SelectedIndex");
-                let has_sel = tv.SelectedItem().is_ok();
-                let size = tv
-                    .cast::<FrameworkElement>()
-                    .expect("FrameworkElement")
-                    .ActualHeight()
-                    .expect("ActualHeight");
-                tracing::info!(
-                    "TabView Loaded: SelectedIndex = {sel_index}, SelectedItem set = {has_sel}, ActualHeight = {size}"
-                );
+            let Some(tv) = weak_for_loaded.upgrade() else {
+                tracing::info!("TabView Loaded: weak upgrade failed");
+                return;
+            };
+            tracing::info!(
+                "TabView Loaded BEFORE: SelectedIndex = {:?}, SelectedItem set = {}",
+                tv.SelectedIndex(),
+                tv.SelectedItem().is_ok()
+            );
+            if let Some(item) = &item_for_loaded {
+                let _ = tv.SetSelectedItem(item);
             }
+            tracing::info!(
+                "TabView Loaded AFTER: SelectedIndex = {:?}, SelectedItem set = {}",
+                tv.SelectedIndex(),
+                tv.SelectedItem().is_ok()
+            );
         })
         .expect("Loaded");
 
