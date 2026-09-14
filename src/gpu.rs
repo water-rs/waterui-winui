@@ -501,11 +501,11 @@ async fn filter_frame(
     // `encode_render` requires a compiled pass graph; `Effect::setup` builds
     // it asynchronously, so the first frame compiles before any capture work.
     if !state.setup_done.get() {
-        let context = runtime.context();
+        let shared = runtime.context();
         let ctx = EffectContext {
-            device: &context.device,
-            queue: &context.queue,
-            shader_cache: context.shader_cache.as_ref(),
+            device: &shared.device,
+            queue: &shared.queue,
+            shader_cache: shared.shader_cache.as_ref(),
             input_format: wgpu::TextureFormat::Bgra8Unorm,
             output_format: wgpu::TextureFormat::Bgra8Unorm,
         };
