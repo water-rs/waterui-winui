@@ -356,15 +356,30 @@ fn render_tab_view(
                     let mut node = fe.Parent().ok();
                     for depth in 0..6 {
                         let Some(p) = node else { break };
+                        let kind = if p.cast::<Grid>().is_ok() {
+                            "Grid"
+                        } else if p.cast::<ScrollViewer>().is_ok() {
+                            "ScrollViewer"
+                        } else if p.cast::<Border>().is_ok() {
+                            "Border"
+                        } else if p.cast::<StackPanel>().is_ok() {
+                            "StackPanel"
+                        } else if p.cast::<ContentControl>().is_ok() {
+                            "ContentControl/derived"
+                        } else if p.cast::<Panel>().is_ok() {
+                            "Panel"
+                        } else {
+                            "other"
+                        };
                         match p.cast::<FrameworkElement>() {
                             Ok(pfe) => tracing::info!(
-                                "  parent[{depth}]: FE h={:?} w={:?} valign={:?} halign={:?}",
+                                "  parent[{depth}]: {kind} h={:?} w={:?} valign={:?} halign={:?}",
                                 pfe.ActualHeight(),
                                 pfe.ActualWidth(),
                                 pfe.VerticalAlignment().map(|v| v.0),
                                 pfe.HorizontalAlignment().map(|v| v.0),
                             ),
-                            Err(_) => tracing::info!("  parent[{depth}]: non-FrameworkElement"),
+                            Err(_) => tracing::info!("  parent[{depth}]: {kind} (non-FE)"),
                         }
                         node = p
                             .cast::<FrameworkElement>()
