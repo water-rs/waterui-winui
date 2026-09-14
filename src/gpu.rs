@@ -465,6 +465,17 @@ async fn filter_frame(
     runtime: GpuRuntime,
     wgpu_surface: Rc<wgpu::Surface<'static>>,
 ) {
+    // A `Rendering` tick can land before the first arrange; an element with
+    // no rendered extent captures an empty bitmap, and wgpu rejects a
+    // zero-dimension texture outright.
+    let content_fe = framework(&content);
+    if content_fe.ActualWidth().expect("ActualWidth") <= 0.0
+        || content_fe.ActualHeight().expect("ActualHeight") <= 0.0
+    {
+        state.busy.set(false);
+        return;
+    }
+
     // Size from the grid in physical pixels.
     let grid_element: UIElement = grid.cast().expect("Grid is a UIElement");
     let fe = framework(&grid_element);
@@ -489,6 +500,15 @@ async fn filter_frame(
         .expect("RenderTargetBitmap::RenderAsync")
         .await
         .expect("RenderAsync failed");
+    let pw = bitmap.PixelWidth().expect("PixelWidth").cast_unsigned();
+    let ph = bitmap.PixelHeight().expect("PixelHeight").cast_unsigned();
+    // The visual layer lags layout: a nonzero element can still capture
+    // empty before its visual reaches the compositor.
+    if pw == 0 || ph == 0 {
+        state.busy.set(false);
+        return;
+    }
+
     let buffer = bitmap
         .GetPixelsAsync()
         .expect("GetPixelsAsync")
@@ -500,9 +520,6 @@ async fn filter_frame(
     reader
         .ReadBytes(&mut pixels)
         .expect("DataReader::ReadBytes");
-
-    let pw = bitmap.PixelWidth().expect("PixelWidth").cast_unsigned();
-    let ph = bitmap.PixelHeight().expect("PixelHeight").cast_unsigned();
 
     let device = &runtime.context().device;
     let queue_wgpu = &runtime.context().queue;
