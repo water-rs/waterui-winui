@@ -325,9 +325,22 @@ fn render_tab_view(
                     let Some(tab_view) = weak_for_loaded.upgrade() else {
                         return;
                     };
+                    tracing::info!(
+                        "TabView Loaded: index={:?} item_ok={} height={:?}",
+                        tab_view.SelectedIndex(),
+                        tab_view.SelectedItem().is_ok(),
+                        tab_view
+                            .cast::<FrameworkElement>()
+                            .and_then(|fe| fe.ActualHeight()),
+                    );
                     tab_view
                         .SetSelectedItem(&selected)
                         .expect("TabView::SetSelectedItem");
+                    tracing::info!(
+                        "TabView after re-apply: index={:?} item_ok={}",
+                        tab_view.SelectedIndex(),
+                        tab_view.SelectedItem().is_ok(),
+                    );
                     let weak = tab_view.downgrade().expect("weak ref");
                     let selected = selected.clone();
                     queue
@@ -338,6 +351,11 @@ fn render_tab_view(
                                     tab_view
                                         .SetSelectedItem(&selected)
                                         .expect("TabView::SetSelectedItem");
+                                    tracing::info!(
+                                        "TabView retry: index={:?} item_ok={}",
+                                        tab_view.SelectedIndex(),
+                                        tab_view.SelectedItem().is_ok(),
+                                    );
                                 }
                             }),
                         )
