@@ -199,7 +199,7 @@ $patchSection
     $exe = Join-Path $env:CARGO_TARGET_DIR "debug\runner-$($ex.Id).exe"
     if ($LASTEXITCODE -ne 0 -or -not (Test-Path $exe)) {
         Write-Host "::warning::$($ex.Id): build failed, see $buildLog"
-        [pscustomobject]@{ Example = $ex.Id; Result = 'build failed'; Title = '' }
+        [pscustomobject]@{ Example = $ex.Id; Result = 'build failed'; Title = ''; PaintedMs = $null; PeakMB = $null }
         Write-Host "::endgroup::"
         continue
     }
@@ -228,7 +228,7 @@ $patchSection
         catch { Write-Host "::warning::$($ex.Id): runtime repair failed: $_" }
         if (-not $repaired) {
             Write-Host "::warning::$($ex.Id): self-contained runtime not staged beside exe"
-            [pscustomobject]@{ Example = $ex.Id; Result = 'run failed: self-contained runtime not staged beside exe'; Title = '' }
+            [pscustomobject]@{ Example = $ex.Id; Result = 'run failed: self-contained runtime not staged beside exe'; Title = ''; PaintedMs = $null; PeakMB = $null }
             Write-Host "::endgroup::"
             continue
         }
@@ -247,17 +247,121 @@ $patchSection
                 $status = "$status ($($r.Diagnostics -replace '\s+', ' ' -replace '\|', '/'))"
             }
         }
-        [pscustomobject]@{ Example = $ex.Id; Result = $status; Title = $r.Title }
+        [pscustomobject]@{ Example = $ex.Id; Result = $status; Title = $r.Title; PaintedMs = $r.PaintedMs; PeakMB = $r.PeakWorkingSetMB }
     } catch {
         $msg = "$_" -replace '\s+', ' ' -replace '\|', '/'
         Write-Host "::warning::$($ex.Id): $msg"
-        [pscustomobject]@{ Example = $ex.Id; Result = "run failed: $msg"; Title = '' }
+        [pscustomobject]@{ Example = $ex.Id; Result = "run failed: $msg"; Title = ''; PaintedMs = $null; PeakMB = $null }
     }
     Write-Host "::endgroup::"
 }
 
-$lines = @('| Example | Result | Window title |', '|---|---|---|')
-foreach ($r in $results) { $lines += "| $($r.Example) | $($r.Result) | $($r.Title) |" }
+# --- Release benchmark ------------------------------------------------------
+# One representative example is rebuilt in release so the shipped binary's
+# size, startup latency, and memory footprint are tracked nightly. `form` is
+# already the CI smoke example, so its content is a stable reference.
+$metrics = $null
+$bench = $examples | Where-Object { $_.Id -eq 'form' } | Select-Object -First 1
+if (-not $bench) { $bench = $examples | Select-Object -First 1 }
+if ($bench) {
+    Write-Host "::group::release benchmark: $($bench.Id)"
+    # Identity fields keep metrics.json self-describing across nightly runs so
+    # artifacts can be concatenated into a trend series.
+    $benchSha = ''
+    try { $benchSha = (git -C $repo rev-parse HEAD).Trim() } catch { }
+    $metricsBase = [ordered]@{
+        run_at = [DateTime]::UtcNow.ToString('o')
+        sha    = $benchSha
+    }
+    $crateDir = Join-Path $genRoot $bench.Id
+    $benchLog = Join-Path $OutDir "$($bench.Id).release-build.log"
+    cargo build --release --manifest-path (Join-Path $crateDir 'Cargo.toml') *> $benchLog
+    $releaseExe = Join-Path $env:CARGO_TARGET_DIR "release\runner-$($bench.Id).exe"
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path $releaseExe)) {
+        Write-Host "::warning::release benchmark build failed, see $benchLog"
+        $metrics = $metricsBase.Clone()
+        $metrics.example = $bench.Id
+        $metrics.build = 'release'
+        $metrics.result = 'build failed'
+    } else {
+        $releaseDir = Split-Path $releaseExe -Parent
+        # The runner's build script stages the self-contained runtime beside
+        # the exe; repair from the shared cache when absent.
+        if (-not (Test-Path (Join-Path $releaseDir 'Microsoft.WindowsAppRuntime.dll'))) {
+            $null = Repair-SelfContainedRuntime $releaseDir
+        }
+        $exeBytes = (Get-Item $releaseExe).Length
+        # Deployable footprint: the exe plus exactly what the runner's build
+        # script stages beside it — the allowlist in the crate's runtime.txt
+        # (top-level msix entries, dirs included) and the WebView2 projection.
+        $setupPkg = $ourMeta.packages | Where-Object { $_.name -eq 'windows-reactor-setup' } | Select-Object -First 1
+        $stagedNames = Get-Content (Join-Path (Split-Path $setupPkg.manifest_path -Parent) 'assets\runtime.txt') |
+            ForEach-Object { $_.Trim() } | Where-Object { $_ }
+        $runtimeBytes = 0L
+        foreach ($name in @($stagedNames) + 'Microsoft.Web.WebView2.Core.dll') {
+            $item = Join-Path $releaseDir $name
+            if (Test-Path $item) {
+                $runtimeBytes += [long]((Get-ChildItem $item -Recurse -File |
+                    Measure-Object Length -Sum).Sum)
+            }
+        }
+        $benchPrefix = Join-Path $OutDir 'release-bench'
+        try {
+            $r = & "$PSScriptRoot\capture-window.ps1" -Exe $releaseExe -OutPrefix $benchPrefix `
+                -StdoutLog "$benchPrefix.stdout.log" -StderrLog "$benchPrefix.stderr.log" `
+                -WindowTimeoutSec 60 -PaintTimeoutSec 60
+            $metrics = $metricsBase.Clone()
+            $metrics.example = $bench.Id
+            $metrics.build = 'release'
+            $metrics.painted = $r.Painted
+            foreach ($kv in ([ordered]@{
+                exe_bytes           = $exeBytes
+                runtime_bytes       = $runtimeBytes
+                bundle_bytes        = $exeBytes + $runtimeBytes
+                window_shown_ms     = $r.WindowShownMs
+                painted_ms          = $r.PaintedMs
+                peak_working_set_mb = $r.PeakWorkingSetMB
+                private_bytes_mb    = $r.PrivateBytesMB
+            }).GetEnumerator()) { $metrics[$kv.Key] = $kv.Value }
+        } catch {
+            Write-Host "::warning::release benchmark run failed: $_"
+            $metrics = $metricsBase.Clone()
+            $metrics.example = $bench.Id
+            $metrics.build = 'release'
+            $metrics.result = 'run failed'
+            $metrics.exe_bytes = $exeBytes
+            $metrics.runtime_bytes = $runtimeBytes
+            $metrics.bundle_bytes = $exeBytes + $runtimeBytes
+        }
+    }
+    $metrics | ConvertTo-Json | Set-Content (Join-Path $OutDir 'metrics.json')
+    Write-Host "::endgroup::"
+}
+
+$lines = @('| Example | Result | Window title | Startup | Peak WS |', '|---|---|---|---|---|')
+foreach ($r in $results) {
+    $startup = if ($null -ne $r.PaintedMs) { "$($r.PaintedMs) ms" } else { '' }
+    $peak = if ($null -ne $r.PeakMB) { "$($r.PeakMB) MB" } else { '' }
+    $lines += "| $($r.Example) | $($r.Result) | $($r.Title) | $startup | $peak |"
+}
+if ($metrics -and $metrics.bundle_bytes) {
+    $lines += ''
+    $lines += "### Backend metrics — release ``$($metrics.example)`` runner"
+    $lines += ''
+    $lines += '| Metric | Value |'
+    $lines += '|---|---|'
+    $lines += "| Runner exe | $('{0:N1}' -f ($metrics.exe_bytes / 1MB)) MB |"
+    $lines += "| Self-contained runtime | $('{0:N1}' -f ($metrics.runtime_bytes / 1MB)) MB |"
+    $lines += "| Deployable total | $('{0:N1}' -f ($metrics.bundle_bytes / 1MB)) MB |"
+    if ($metrics.painted) {
+        $lines += "| Window shown | $($metrics.window_shown_ms) ms |"
+        $lines += "| First paint | $($metrics.painted_ms) ms |"
+        $lines += "| Peak working set | $($metrics.peak_working_set_mb) MB |"
+        $lines += "| Private bytes | $($metrics.private_bytes_mb) MB |"
+    } else {
+        $lines += "| Run | failed — see release-bench logs |"
+    }
+}
 Set-Content (Join-Path $OutDir 'summary.md') ($lines -join "`n")
 if ($env:GITHUB_STEP_SUMMARY) {
     Add-Content $env:GITHUB_STEP_SUMMARY ("## Nightly example screenshots`n`n" + ($lines -join "`n"))

@@ -76,6 +76,9 @@ public struct POINT { public int X, Y; }
 '@
 }
 
+$windowShownMs = $null
+$paintedMs = $null
+
 try {
     $deadline = [DateTime]::UtcNow.AddSeconds($WindowTimeoutSec)
     while ($true) {
@@ -87,7 +90,10 @@ try {
             }
             throw "$Exe exited before showing a window (code $($proc.ExitCode)). $tail"
         }
-        if ($proc.MainWindowHandle -ne [IntPtr]::Zero) { break }
+        if ($proc.MainWindowHandle -ne [IntPtr]::Zero) {
+            $windowShownMs = [int]([DateTime]::Now - $proc.StartTime).TotalMilliseconds
+            break
+        }
         if ([DateTime]::UtcNow -gt $deadline) { throw "$Exe did not show a window within ${WindowTimeoutSec}s" }
         Start-Sleep -Milliseconds 100
     }
@@ -166,7 +172,11 @@ try {
                 $deviating += $freq[$argb]
             }
         }
-        if ($deviating -ge 4 -or $freq.Count -gt 16) { $painted = $true; break }
+        if ($deviating -ge 4 -or $freq.Count -gt 16) {
+            $painted = $true
+            $paintedMs = [int]([DateTime]::Now - $proc.StartTime).TotalMilliseconds
+            break
+        }
         $proc.Refresh()
         if ($proc.HasExited) { throw "$Exe exited while waiting for paint (code $($proc.ExitCode))" }
         if ([DateTime]::UtcNow -gt $deadline) { break }
@@ -217,15 +227,33 @@ try {
         $desktop.Dispose()
     }
 
+    # Process counters are sampled after the frame settles — the OS maintains
+    # PeakWorkingSet64 continuously, so the read needs no polling during run.
+    # The process may exit mid-read; a stale counter is not worth failing the
+    # capture over.
+    $peakWorkingSetMB = $null
+    $privateBytesMB = $null
+    try {
+        $proc.Refresh()
+        if (-not $proc.HasExited) {
+            $peakWorkingSetMB = [Math]::Round($proc.PeakWorkingSet64 / 1MB, 1)
+            $privateBytesMB = [Math]::Round($proc.PrivateMemorySize64 / 1MB, 1)
+        }
+    } catch { }
+
     [pscustomobject]@{
-        Title       = $proc.MainWindowTitle
-        Painted     = $painted
-        WindowPng   = $windowPng
-        DesktopPng  = $desktopPng
+        Title            = $proc.MainWindowTitle
+        Painted          = $painted
+        WindowPng        = $windowPng
+        DesktopPng       = $desktopPng
+        WindowShownMs    = $windowShownMs
+        PaintedMs        = $paintedMs
+        PeakWorkingSetMB = $peakWorkingSetMB
+        PrivateBytesMB   = $privateBytesMB
         # On a blank window, list every top-level window the process owns so
         # the summary can distinguish "content never rendered" from
         # "MainWindowHandle picked the wrong window".
-        Diagnostics = if ($painted) { '' } else {
+        Diagnostics      = if ($painted) { '' } else {
             ([User32]::WindowsOfProcess($proc.Id)) -join ' | '
         }
     }
