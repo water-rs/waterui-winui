@@ -434,6 +434,12 @@ fn render_tab_view(
     }));
 
     store_watcher_guards(&element, guards);
+
+    tracing::info!("render_tab_view complete");
+    let queue2 = renderer.executor().queue().clone();
+    enqueue_on_ui_thread(&queue2, || {
+        tracing::info!("dispatcher callback ran");
+    });
     element.cast().expect("FrameworkElement is a UIElement")
 }
 
