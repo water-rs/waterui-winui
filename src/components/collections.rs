@@ -264,7 +264,12 @@ fn render_tab_view(
         // The tab content is a lazily built `NavigationView`; inside a tab the
         // bar collapses, matching the GTK backend which renders its content.
         let navigation_view = tab.content.build();
-        let content = renderer.render_any(navigation_view.content, env);
+        let _ = &navigation_view; // DEBUG: plain content to isolate the presenter path
+        let block = TextBlock::new().expect("TextBlock::new");
+        block
+            .SetText("DEBUG tab content")
+            .expect("TextBlock::SetText");
+        let content: UIElement = block.cast().expect("UIElement");
         item.cast::<ContentControl>()
             .expect("TabViewItem is a ContentControl")
             .SetContent(&content)
@@ -308,6 +313,27 @@ fn render_tab_view(
             .expect("TabView::SetSelectedItem");
     }
 
+    // DEBUG: log what the control sees once loaded
+    let weak_for_loaded = tab_view.downgrade().expect("weak ref");
+    let loaded_revoker = tab_view
+        .cast::<FrameworkElement>()
+        .expect("FrameworkElement")
+        .Loaded(move |_, _| {
+            if let Some(tv) = weak_for_loaded.upgrade() {
+                let sel_index = tv.SelectedIndex().expect("SelectedIndex");
+                let has_sel = tv.SelectedItem().is_ok();
+                let size = tv
+                    .cast::<FrameworkElement>()
+                    .expect("FrameworkElement")
+                    .ActualHeight()
+                    .expect("ActualHeight");
+                tracing::info!(
+                    "TabView Loaded: SelectedIndex = {sel_index}, SelectedItem set = {has_sel}, ActualHeight = {size}"
+                );
+            }
+        })
+        .expect("Loaded");
+
     let selection = layout.selection.clone();
     let ids_for_event = ids.clone();
     let revoker = tab_view
@@ -330,6 +356,7 @@ fn render_tab_view(
         .expect("TabView::SelectionChanged");
     let element = framework(&tab_view.cast().expect("UIElement"));
     store_event_revoker(&element, revoker);
+    store_event_revoker(&element, loaded_revoker);
 
     let queue = renderer.executor().queue().clone();
     let weak = tab_view.downgrade().expect("weak ref");
