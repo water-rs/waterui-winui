@@ -64,7 +64,19 @@ $examples = foreach ($p in $meta.packages) {
             Write-Host "::warning::skipping $($p.name): no pub fn app entry point"
             continue
         }
-        [pscustomobject]@{ Id = (Split-Path $dir -Leaf); Crate = $p.name; Lib = $lib.name; Dir = $dir }
+        # Examples that link waterui-browser-cef need two things from the
+        # runner crate: the `cef-runtime` feature (the workspace disables
+        # default features, so the sandbox shim is never compiled and the
+        # link fails with LNK2019) and the CEF distribution staged beside the
+        # exe (`CefRuntimePaths::packaged` resolves the exe's directory).
+        $cefDep = $p.dependencies | Where-Object { $_.name -eq 'waterui-browser-cef' } | Select-Object -First 1
+        [pscustomobject]@{
+            Id      = (Split-Path $dir -Leaf)
+            Crate   = $p.name
+            Lib     = $lib.name
+            Dir     = $dir
+            CefDir  = if ($cefDep -and $cefDep.path) { ($cefDep.path -replace '\\', '/') } else { $null }
+        }
     }
 }
 if (-not $examples) { throw "no runnable examples discovered under $examplesRoot" }
@@ -174,6 +186,12 @@ fn main() {
 '@
 
     $exFwd = $ex.Dir -replace '\\', '/'
+    # Declaring waterui-browser-cef here unifies its features with the
+    # example's dep: `cef-runtime` compiles the Windows sandbox shim
+    # (`native/windows_sandbox.cc`) that the link fails without.
+    $cefDepLine = if ($ex.CefDir) {
+        "waterui-browser-cef = { path = `"$($ex.CefDir)`", features = [`"cef-runtime`"] }"
+    } else { '' }
     Set-Content (Join-Path $crateDir 'Cargo.toml') @"
 [package]
 name = "runner-$($ex.Id)"
@@ -186,6 +204,7 @@ edition = "2024"
 waterui-winui = { path = "$repoFwd", features = ["self-contained"] }
 waterui = "=$pinned"
 $($ex.Crate) = { path = "$exFwd" }
+$cefDepLine
 
 [build-dependencies]
 windows-reactor-setup = "$reactorSetup"
@@ -233,6 +252,22 @@ $patchSection
             continue
         }
         Write-Host "$($ex.Id): repaired self-contained runtime beside exe"
+    }
+
+    # `CefRuntimePaths::packaged` resolves the exe's own directory as the CEF
+    # runtime root: `cef-dll-sys` downloads the distribution into its build
+    # output, so stage it beside the runner before launch.
+    if ($ex.CefDir -and -not (Test-Path (Join-Path (Split-Path $exe -Parent) 'libcef.dll'))) {
+        $cefRoot = Get-ChildItem (Join-Path $env:CARGO_TARGET_DIR 'debug\build\cef-dll-sys-*\out\cef_windows_*') -Directory -ErrorAction SilentlyContinue |
+            Where-Object { Test-Path (Join-Path $_.FullName 'libcef.dll') } |
+            Select-Object -First 1
+        if (-not $cefRoot) {
+            Write-Host "::warning::$($ex.Id): CEF distribution missing from cef-dll-sys build output"
+            [pscustomobject]@{ Example = $ex.Id; Result = 'run failed: CEF distribution not found in cef-dll-sys output'; Title = ''; PaintedMs = $null; PeakMB = $null }
+            Write-Host "::endgroup::"
+            continue
+        }
+        Copy-Item (Join-Path $cefRoot.FullName '*') (Split-Path $exe -Parent) -Recurse -Force
     }
 
     try {
