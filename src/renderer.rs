@@ -31,6 +31,7 @@ use waterui_navigation::tab::TabsLayout;
 use waterui_navigation::{NavigationSplitLayout, NavigationStack, NavigationView};
 use waterui_shape::ResolvedShape;
 use waterui_text::TextConfig;
+use waterui_video::video::{NativeVideoConfig, NativeVideoPlayerConfig};
 use windows_core::Interface;
 
 #[allow(clippy::wildcard_imports)] // the generated namespace
@@ -146,6 +147,8 @@ impl WinUiRenderer {
         Self::register_native::<ResolvedShape>(dispatcher);
         #[cfg(feature = "gpu")]
         Self::register_native::<GpuSurface>(dispatcher);
+        Self::register_native::<NativeVideoConfig>(dispatcher);
+        Self::register_native::<NativeVideoPlayerConfig>(dispatcher);
 
         Self::register::<Native<Dynamic>>(dispatcher);
 

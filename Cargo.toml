@@ -56,6 +56,7 @@ waterui-navigation = "=0.3.0"
 waterui-graphics = { version = "=0.3.0", default-features = false }
 waterui-icon = "=0.3.0"
 waterui-shape = { version = "=0.1.0", default-features = false }
+waterui-video = "=0.3.0"
 waterui-locale = "=0.1.0"
 nami = "=0.11.2"
 jiff = "0.2"
