@@ -240,13 +240,11 @@ fn render_tab_view(
     tab_view
         .SetIsAddTabButtonVisible(false)
         .expect("TabView::SetIsAddTabButtonVisible");
-    let tab_items = crate::util::vector::<_, windows_core::IInspectable>(
-        &tab_view.TabItems().expect("TabView::TabItems"),
-    );
 
     let ids: Vec<Id> = layout.tabs.iter().map(|tab| tab.id).collect();
     let mut guards = Vec::new();
 
+    let mut items: Vec<windows_core::IInspectable> = Vec::new();
     for tab in layout.tabs {
         let item = TabViewItem::new().expect("TabViewItem::new");
         let queue = renderer.executor().queue().clone();
@@ -275,19 +273,40 @@ fn render_tab_view(
             .expect("TabViewItem is a Control")
             .SetIsEnabled(tab.enabled.get())
             .expect("Control::SetIsEnabled");
-        tab_items
-            .Append(
-                &item
-                    .cast::<windows_core::IInspectable>()
-                    .expect("IInspectable"),
-            )
-            .expect("IVector::Append");
+        items.push(
+            item.cast::<windows_core::IInspectable>()
+                .expect("IInspectable"),
+        );
     }
 
+    // Feed the strip through `TabItemsSource`, which binds the inner
+    // `ListView`'s `ItemsSource` directly. Items appended to `TabItems` are
+    // copied into the `ListView` on load and never materialize in practice.
+    let source_vec: Vec<Option<windows_core::IInspectable>> =
+        items.iter().cloned().map(Some).collect();
+    let source = windows_collections::IVector::<windows_core::IInspectable>::from(source_vec)
+        .cast::<windows_core::IInspectable>()
+        .expect("IVector is an IInspectable");
+    tab_view
+        .SetTabItemsSource(&source)
+        .expect("TabView::SetTabItemsSource");
+
+    // The default style aligns the `TabView` to the top with only its
+    // desired height, which collapses the `*` content row; stretch it to
+    // fill the slot its parent arranges.
+    tab_view
+        .cast::<FrameworkElement>()
+        .expect("FrameworkElement")
+        .SetVerticalAlignment(VerticalAlignment::Stretch)
+        .expect("SetVerticalAlignment");
+
     if let Some(index) = ids.iter().position(|id| *id == layout.selection.get()) {
+        // Selection must go through `SelectedItem`: on an `ItemsSource`-bound
+        // list `SelectedIndex` cannot push into the `ListView` before its
+        // containers exist, so the item stays unselected and content blank.
         tab_view
-            .SetSelectedIndex(i32::try_from(index).expect("tab index fits i32"))
-            .expect("TabView::SetSelectedIndex");
+            .SetSelectedItem(&items[index])
+            .expect("TabView::SetSelectedItem");
     }
 
     let selection = layout.selection.clone();
@@ -320,14 +339,16 @@ fn render_tab_view(
         let weak = weak.clone();
         let queue = queue.clone();
         let ids = ids.clone();
+        let items = items.clone();
         enqueue_on_ui_thread(&queue, move || {
             if let Some(tab_view) = weak.upgrade()
                 && let Some(index) = ids.iter().position(|id| *id == value)
             {
-                let index = i32::try_from(index).expect("tab index fits i32");
-                if tab_view.SelectedIndex().expect("SelectedIndex") != index {
-                    tab_view.SetSelectedIndex(index).expect("SetSelectedIndex");
-                }
+                // `SelectedItem` is a no-op when already selected, so this
+                // cannot feed back into the `SelectionChanged` handler.
+                tab_view
+                    .SetSelectedItem(&items[index])
+                    .expect("SetSelectedItem");
             }
         });
     }));

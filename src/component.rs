@@ -68,20 +68,35 @@ impl SubView for WinUiSubView {
     /// Measures the element against `proposal` via `UIElement::Measure`.
     ///
     /// `None` maps to an unbounded proposal; a concrete extent caps the
-    /// available size on that axis. During arrange the element's measured
-    /// `DesiredSize` is returned instead: `Measure` inside the arrange pass
-    /// re-invalidates the parent and produces a XAML layout cycle.
+    /// available size on that axis. On an axis the child declares it
+    /// stretches along, the offer is the answer — reporting `DesiredSize`
+    /// would shrink-wrap the child at whatever its template happened to
+    /// measure (a `TabView` desires only its strip height, collapsing its
+    /// own `*` content row). During arrange the element's measured
+    /// `DesiredSize` is read instead of calling `Measure`, which inside the
+    /// arrange pass re-invalidates the parent and produces a XAML layout
+    /// cycle.
     fn measure(&self, proposal: ProposalSize) -> ViewDimensions {
-        if self.arranging.get() {
-            return self.desired_dimensions();
+        if !self.arranging.get() {
+            self.element
+                .Measure(Size {
+                    width: proposal.width.unwrap_or(f32::INFINITY),
+                    height: proposal.height.unwrap_or(f32::INFINITY),
+                })
+                .expect("UIElement::Measure failed during layout");
         }
-        self.element
-            .Measure(Size {
-                width: proposal.width.unwrap_or(f32::INFINITY),
-                height: proposal.height.unwrap_or(f32::INFINITY),
-            })
-            .expect("UIElement::Measure failed during layout");
-        self.desired_dimensions()
+        let desired = self.desired_dimensions().size;
+        let width = if self.stretch_axis.stretches_horizontal() {
+            proposal.width.unwrap_or(desired.width)
+        } else {
+            desired.width
+        };
+        let height = if self.stretch_axis.stretches_vertical() {
+            proposal.height.unwrap_or(desired.height)
+        } else {
+            desired.height
+        };
+        ViewDimensions::new(waterui_core::layout::Size::new(width, height))
     }
 
     fn stretch_axis(&self) -> StretchAxis {

@@ -172,6 +172,35 @@ try {
         if ([DateTime]::UtcNow -gt $deadline) { break }
         Start-Sleep -Milliseconds 100
     }
+    # The first painted sample can predate late lifecycle work (Loaded
+    # handlers, deferred selection, mid-flight transitions). Keep sampling
+    # until the frame stops changing — two identical captures back to back
+    # mean the UI has settled — so the saved PNG shows the finished window.
+    # Animated content never goes stable; the deadline bounds the wait.
+    if ($painted) {
+        $settleDeadline = [DateTime]::UtcNow.AddSeconds(3)
+        $lastSignature = $null
+        while ($true) {
+            [User32]::SetWindowPos($proc.MainWindowHandle, [IntPtr]::Zero, 0, 0, 0, 0, $swpFlags) | Out-Null
+            $bmp.Dispose()
+            $bmp = New-Object System.Drawing.Bitmap $width, $height
+            $graphics = [System.Drawing.Graphics]::FromImage($bmp)
+            $graphics.CopyFromScreen($rect.Left, $rect.Top, 0, 0, $bmp.Size)
+            $graphics.Dispose()
+
+            $pixels = New-Object System.Collections.Generic.List[int]
+            for ($x = $x0; $x -lt $x1; $x += 8) {
+                for ($y = $y0; $y -lt $y1; $y += 8) {
+                    $pixels.Add($bmp.GetPixel($x, $y).ToArgb())
+                }
+            }
+            $signature = $pixels -join ','
+            if ($null -ne $lastSignature -and $signature -eq $lastSignature) { break }
+            $lastSignature = $signature
+            if ([DateTime]::UtcNow -gt $settleDeadline) { break }
+            Start-Sleep -Milliseconds 100
+        }
+    }
     $windowPng = "$OutPrefix-window.png"
     $bmp.Save($windowPng, [System.Drawing.Imaging.ImageFormat]::Png)
     $bmp.Dispose()
