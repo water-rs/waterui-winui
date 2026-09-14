@@ -175,6 +175,10 @@ $results = foreach ($ex in $examples) {
         # the harness captures. CEF subprocesses re-enter through the same
         # pair — `--type` marks those launches and must reach
         # `cef_execute_process` before any WinUI work.
+        #
+        # The package also keeps a bin target: `cargo:rustc-link-arg-bins`
+        # (emitted by `as_self_contained`) is rejected for a package with no
+        # bins, and the bin doubles as a runnable unsandboxed entry.
         Set-Content (Join-Path $crateDir 'src\lib.rs') @"
 fn main() {
     if std::env::args_os()
@@ -186,6 +190,12 @@ fn main() {
         .expect("example run failed");
 }
 waterui_browser_cef::cef_bootstrap_main!(main);
+"@
+        Set-Content (Join-Path $crateDir 'src\main.rs') @"
+fn main() {
+    waterui_winui::run_app($($ex.Lib)::app(waterui::env::Environment::new()))
+        .expect("example run failed");
+}
 "@
     } else {
         Set-Content (Join-Path $crateDir 'src\main.rs') @"
