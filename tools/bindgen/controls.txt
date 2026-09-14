@@ -658,7 +658,7 @@ Microsoft::UI::Xaml::Controls::IScrollViewer::{ChangeView, get_HorizontalOffset,
 Microsoft::UI::Xaml::Controls::INavigationView::{add_ItemInvoked, remove_ItemInvoked}
 Microsoft::UI::Xaml::Controls::INavigationView2::{add_BackRequested, remove_BackRequested}
 Microsoft::UI::Xaml::Controls::INavigationView2::put_IsBackEnabled
-Microsoft::UI::Xaml::Controls::ITabView::{get_TabItems, put_SelectedIndex, get_SelectedIndex, put_SelectedItem, get_SelectedItem, add_SelectionChanged, remove_SelectionChanged, put_IsAddTabButtonVisible, put_CanReorderTabs}
+Microsoft::UI::Xaml::Controls::ITabView::{get_TabItems, put_TabItemsSource, put_SelectedIndex, get_SelectedIndex, put_SelectedItem, get_SelectedItem, add_SelectionChanged, remove_SelectionChanged, put_IsAddTabButtonVisible, put_CanReorderTabs}
 Microsoft::UI::Xaml::Controls::ICalendarView::{add_SelectedDatesChanged, remove_SelectedDatesChanged, get_SelectedDates, put_MinDate, put_MaxDate, put_SelectionMode}
 Microsoft::UI::Xaml::Controls::ICalendarDatePicker::{get_Date, put_Date, add_DateChanged, remove_DateChanged, put_MinDate, put_MaxDate}
 Microsoft::UI::Xaml::Controls::IColorPicker::{get_Color, put_Color, add_ColorChanged, remove_ColorChanged, put_IsAlphaEnabled, put_IsColorSliderVisible, put_IsColorChannelTextInputVisible, put_IsHexInputVisible}

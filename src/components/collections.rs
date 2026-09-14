@@ -241,13 +241,10 @@ fn render_tab_view(
     tab_view
         .SetIsAddTabButtonVisible(true)
         .expect("TabView::SetIsAddTabButtonVisible");
-    let tab_items = crate::util::vector::<_, windows_core::IInspectable>(
-        &tab_view.TabItems().expect("TabView::TabItems"),
-    );
-
     let ids: Vec<Id> = layout.tabs.iter().map(|tab| tab.id).collect();
     let mut guards = Vec::new();
 
+    let mut items: Vec<Option<windows_core::IInspectable>> = Vec::new();
     for tab in layout.tabs {
         let item = TabViewItem::new().expect("TabViewItem::new");
         let queue = renderer.executor().queue().clone();
@@ -274,20 +271,20 @@ fn render_tab_view(
             .expect("TabViewItem is a Control")
             .SetIsEnabled(tab.enabled.get())
             .expect("Control::SetIsEnabled");
-        tab_items
-            .Append(
-                &item
-                    .cast::<windows_core::IInspectable>()
-                    .expect("IInspectable"),
-            )
-            .expect("IVector::Append");
+        items.push(Some(
+            item.cast::<windows_core::IInspectable>()
+                .expect("IInspectable"),
+        ));
     }
 
-    // DEBUG: did the appends reach the control's live collection?
-    tracing::info!(
-        "TabItems size after appends: {}",
-        tab_items.Size().expect("IVector::Size")
-    );
+    // DEBUG: drive the strip through TabItemsSource instead of TabItems —
+    // the template binds the inner ListView's ItemsSource to it directly.
+    let source = windows_collections::IVector::<windows_core::IInspectable>::from(items)
+        .cast::<windows_core::IInspectable>()
+        .expect("IVector is an IInspectable");
+    tab_view
+        .SetTabItemsSource(&source)
+        .expect("TabView::SetTabItemsSource");
 
     // DEBUG: what does the control see once loaded into the tree?
     let weak_for_loaded = tab_view.downgrade().expect("weak ref");
