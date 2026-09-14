@@ -299,6 +299,22 @@ fn render_tab_view(
         .SetVerticalAlignment(VerticalAlignment::Stretch)
         .expect("SetVerticalAlignment");
 
+    // DEBUG: SizeChanged fires during every layout pass — if even this is
+    // silent, the event wiring itself is broken.
+    let size_revoker = tab_view
+        .cast::<FrameworkElement>()
+        .expect("FrameworkElement")
+        .SizeChanged(|sender, args| {
+            let Ok(sender) = sender.ok() else { return };
+            let _ = sender.cast::<FrameworkElement>().expect("FrameworkElement");
+            let size = args
+                .ok()
+                .and_then(|a| a.NewSize())
+                .unwrap_or_default();
+            tracing::info!("TabView SizeChanged: {}x{}", size.width, size.height);
+        })
+        .expect("SizeChanged");
+
     let mut loaded_revoker = None;
     if let Some(index) = ids.iter().position(|id| *id == layout.selection.get()) {
         // Selection must go through `SelectedItem`: on an `ItemsSource`-bound
@@ -374,6 +390,10 @@ fn render_tab_view(
             };
             let tab_view = sender.cast::<TabView>().expect("sender is the TabView");
             let index = tab_view.SelectedIndex().expect("TabView::SelectedIndex");
+            tracing::info!(
+                "TabView SelectionChanged: index={index} item_ok={}",
+                tab_view.SelectedItem().is_ok()
+            );
             if index >= 0
                 && let Some(id) = ids_for_event
                     .as_slice()
@@ -387,6 +407,7 @@ fn render_tab_view(
         .expect("TabView::SelectionChanged");
     let element = framework(&tab_view.cast().expect("UIElement"));
     store_event_revoker(&element, revoker);
+    store_event_revoker(&element, size_revoker);
     if let Some(loaded_revoker) = loaded_revoker {
         store_event_revoker(&element, loaded_revoker);
     }
