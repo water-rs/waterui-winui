@@ -18,6 +18,7 @@ const SELF_CONTAINED_MARKER: &str = "waterui-winui-self-contained";
 
 windows_core::link!("kernel32.dll" "system" fn FindResourceW(module: *mut core::ffi::c_void, name: *const u16, resource_type: *const u16) -> *mut core::ffi::c_void);
 windows_core::link!("kernel32.dll" "system" fn GetModuleHandleW(name: *const u16) -> *mut core::ffi::c_void);
+windows_core::link!("kernel32.dll" "system" fn GetModuleHandleExW(flags: u32, name: *const u16, module: *mut *mut core::ffi::c_void) -> i32);
 windows_core::link!("kernel32.dll" "system" fn LoadResource(module: *mut core::ffi::c_void, resource: *mut core::ffi::c_void) -> *mut core::ffi::c_void);
 windows_core::link!("kernel32.dll" "system" fn LockResource(resource: *mut core::ffi::c_void) -> *mut core::ffi::c_void);
 windows_core::link!("kernel32.dll" "system" fn SizeofResource(module: *mut core::ffi::c_void, resource: *mut core::ffi::c_void) -> u32);
@@ -193,8 +194,29 @@ fn self_contained_runtime_present() -> bool {
 /// build script stages a self-contained Windows App Runtime. The
 /// `windows-reactor-setup` marker is recognized as well so that build script
 /// can be reused unchanged.
-#[allow(clippy::manual_dangling_ptr)] // FindResourceW uses low pointer values for ordinals.
 fn self_contained_manifest_present() -> bool {
+    unsafe {
+        // The marker normally lives in the exe's embedded manifest. A CEF
+        // bootstrap application is a DLL loaded by the renamed
+        // `bootstrap.exe`/`bootstrapc.exe` launcher — the exe's manifest is
+        // fixed at CEF build time, so the marker is embedded into the
+        // application DLL instead. Probing this code's own module covers both:
+        // for an exe build it resolves to the exe module, for the CEF DLL it
+        // resolves to the DLL.
+        const FROM_ADDRESS_UNCHANGED_REFCOUNT: u32 = 0x2 | 0x4;
+        let exe = GetModuleHandleW(std::ptr::null());
+        let mut this = std::ptr::null_mut();
+        _ = GetModuleHandleExW(
+            FROM_ADDRESS_UNCHANGED_REFCOUNT,
+            (module_manifest_has_marker as fn(*mut core::ffi::c_void) -> bool) as *const u16,
+            &raw mut this,
+        );
+        module_manifest_has_marker(exe) || (this != exe && module_manifest_has_marker(this))
+    }
+}
+
+#[allow(clippy::manual_dangling_ptr)] // FindResourceW uses low pointer values for ordinals.
+fn module_manifest_has_marker(module: *mut core::ffi::c_void) -> bool {
     const MARKERS: &[&str] = &[
         SELF_CONTAINED_MARKER,
         // windows-reactor-setup embeds this marker when it stages the runtime.
@@ -202,7 +224,6 @@ fn self_contained_manifest_present() -> bool {
     ];
 
     unsafe {
-        let module = GetModuleHandleW(std::ptr::null());
         if module.is_null() {
             return false;
         }

@@ -14,18 +14,22 @@ jobs:
       - uses: actions/checkout@v4
         with:
           path: waterui-winui
-      - name: Resolve pinned waterui tag
+      - name: Resolve pinned waterui ref
         id: pin
         run: |
           $manifest = Get-Content waterui-winui\Cargo.toml -Raw
           if ($manifest -notmatch 'waterui\s*=\s*\{[^}]*version\s*=\s*"=([0-9.]+)"') {
             throw 'cannot find the waterui version pin in Cargo.toml'
           }
-          "tag=v$($Matches[1])" >> $env:GITHUB_OUTPUT
+          # The pinned minor's backport branch (`release/v<major>.<minor>.x`)
+          # carries the release line plus backported fixes the nightly needs —
+          # e.g. the CEF bootstrap entry point that v0.3.0 predates.
+          $parts = $Matches[1] -split '\.'
+          "ref=release/v$($parts[0]).$($parts[1]).x" >> $env:GITHUB_OUTPUT
       - uses: actions/checkout@v4
         with:
           repository: water-rs/waterui
-          ref: ${{ steps.pin.outputs.tag }}
+          ref: ${{ steps.pin.outputs.ref }}
           path: waterui
           submodules: recursive
       - uses: dtolnay/rust-toolchain@stable
