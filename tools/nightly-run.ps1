@@ -265,74 +265,85 @@ $bench = $examples | Where-Object { $_.Id -eq 'form' } | Select-Object -First 1
 if (-not $bench) { $bench = $examples | Select-Object -First 1 }
 if ($bench) {
     Write-Host "::group::release benchmark: $($bench.Id)"
-    # Identity fields keep metrics.json self-describing across nightly runs so
-    # artifacts can be concatenated into a trend series.
-    $benchSha = ''
-    try { $benchSha = (git -C $repo rev-parse HEAD).Trim() } catch { }
-    $metricsBase = [ordered]@{
-        run_at = [DateTime]::UtcNow.ToString('o')
-        sha    = $benchSha
-    }
-    $crateDir = Join-Path $genRoot $bench.Id
-    $benchLog = Join-Path $OutDir "$($bench.Id).release-build.log"
-    cargo build --release --manifest-path (Join-Path $crateDir 'Cargo.toml') *> $benchLog
-    $releaseExe = Join-Path $env:CARGO_TARGET_DIR "release\runner-$($bench.Id).exe"
-    if ($LASTEXITCODE -ne 0 -or -not (Test-Path $releaseExe)) {
-        Write-Host "::warning::release benchmark build failed, see $benchLog"
-        $metrics = $metricsBase.Clone()
-        $metrics.example = $bench.Id
-        $metrics.build = 'release'
-        $metrics.result = 'build failed'
-    } else {
-        $releaseDir = Split-Path $releaseExe -Parent
-        # The runner's build script stages the self-contained runtime beside
-        # the exe; repair from the shared cache when absent.
-        if (-not (Test-Path (Join-Path $releaseDir 'Microsoft.WindowsAppRuntime.dll'))) {
-            $null = Repair-SelfContainedRuntime $releaseDir
+    # The benchmark is auxiliary reporting: a failure inside it must warn and
+    # degrade to a failure record, never take down the example summary.
+    try {
+        # Identity fields keep metrics.json self-describing across nightly
+        # runs so artifacts can be concatenated into a trend series.
+        $benchSha = ''
+        try { $benchSha = (git -C $repo rev-parse HEAD).Trim() } catch { }
+        $metricsBase = [ordered]@{
+            run_at = [DateTime]::UtcNow.ToString('o')
+            sha    = $benchSha
         }
-        $exeBytes = (Get-Item $releaseExe).Length
-        # Deployable footprint: the exe plus exactly what the runner's build
-        # script stages beside it — the allowlist in the crate's runtime.txt
-        # (top-level msix entries, dirs included) and the WebView2 projection.
-        $setupPkg = $ourMeta.packages | Where-Object { $_.name -eq 'windows-reactor-setup' } | Select-Object -First 1
-        $stagedNames = Get-Content (Join-Path (Split-Path $setupPkg.manifest_path -Parent) 'assets\runtime.txt') |
-            ForEach-Object { $_.Trim() } | Where-Object { $_ }
-        $runtimeBytes = 0L
-        foreach ($name in @($stagedNames) + 'Microsoft.Web.WebView2.Core.dll') {
-            $item = Join-Path $releaseDir $name
-            if (Test-Path $item) {
-                $runtimeBytes += [long]((Get-ChildItem $item -Recurse -File |
-                    Measure-Object Length -Sum).Sum)
+        $crateDir = Join-Path $genRoot $bench.Id
+        $benchLog = Join-Path $OutDir "$($bench.Id).release-build.log"
+        cargo build --release --manifest-path (Join-Path $crateDir 'Cargo.toml') *> $benchLog
+        $releaseExe = Join-Path $env:CARGO_TARGET_DIR "release\runner-$($bench.Id).exe"
+        if ($LASTEXITCODE -ne 0 -or -not (Test-Path $releaseExe)) {
+            Write-Host "::warning::release benchmark build failed, see $benchLog"
+            $metrics = $metricsBase.Clone()
+            $metrics.example = $bench.Id
+            $metrics.build = 'release'
+            $metrics.result = 'build failed'
+        } else {
+            $releaseDir = Split-Path $releaseExe -Parent
+            # The runner's build script stages the self-contained runtime
+            # beside the exe; repair from the shared cache when absent.
+            if (-not (Test-Path (Join-Path $releaseDir 'Microsoft.WindowsAppRuntime.dll'))) {
+                $null = Repair-SelfContainedRuntime $releaseDir
+            }
+            $exeBytes = (Get-Item $releaseExe).Length
+            # Deployable footprint: the exe plus exactly what the runner's
+            # build script stages beside it — the allowlist in the crate's
+            # runtime.txt (top-level msix entries, dirs included) and the
+            # WebView2 projection. The package is optional in waterui-winui's
+            # graph, so resolve it from the runner crate that built the exe.
+            $runnerMeta = cargo metadata --format-version 1 --manifest-path (Join-Path $crateDir 'Cargo.toml') | ConvertFrom-Json
+            $setupPkg = $runnerMeta.packages | Where-Object { $_.name -eq 'windows-reactor-setup' } | Select-Object -First 1
+            if (-not $setupPkg) { throw 'windows-reactor-setup absent from runner dependency graph' }
+            $stagedNames = Get-Content (Join-Path (Split-Path $setupPkg.manifest_path -Parent) 'assets\runtime.txt') |
+                ForEach-Object { $_.Trim() } | Where-Object { $_ }
+            $runtimeBytes = 0L
+            foreach ($name in @($stagedNames) + 'Microsoft.Web.WebView2.Core.dll') {
+                $item = Join-Path $releaseDir $name
+                if (Test-Path $item) {
+                    $runtimeBytes += [long]((Get-ChildItem $item -Recurse -File |
+                        Measure-Object Length -Sum).Sum)
+                }
+            }
+            $benchPrefix = Join-Path $OutDir 'release-bench'
+            try {
+                $r = & "$PSScriptRoot\capture-window.ps1" -Exe $releaseExe -OutPrefix $benchPrefix `
+                    -StdoutLog "$benchPrefix.stdout.log" -StderrLog "$benchPrefix.stderr.log" `
+                    -WindowTimeoutSec 60 -PaintTimeoutSec 60
+                $metrics = $metricsBase.Clone()
+                $metrics.example = $bench.Id
+                $metrics.build = 'release'
+                $metrics.painted = $r.Painted
+                foreach ($kv in ([ordered]@{
+                    exe_bytes           = $exeBytes
+                    runtime_bytes       = $runtimeBytes
+                    bundle_bytes        = $exeBytes + $runtimeBytes
+                    window_shown_ms     = $r.WindowShownMs
+                    painted_ms          = $r.PaintedMs
+                    peak_working_set_mb = $r.PeakWorkingSetMB
+                    private_bytes_mb    = $r.PrivateBytesMB
+                }).GetEnumerator()) { $metrics[$kv.Key] = $kv.Value }
+            } catch {
+                Write-Host "::warning::release benchmark run failed: $_"
+                $metrics = $metricsBase.Clone()
+                $metrics.example = $bench.Id
+                $metrics.build = 'release'
+                $metrics.result = 'run failed'
+                $metrics.exe_bytes = $exeBytes
+                $metrics.runtime_bytes = $runtimeBytes
+                $metrics.bundle_bytes = $exeBytes + $runtimeBytes
             }
         }
-        $benchPrefix = Join-Path $OutDir 'release-bench'
-        try {
-            $r = & "$PSScriptRoot\capture-window.ps1" -Exe $releaseExe -OutPrefix $benchPrefix `
-                -StdoutLog "$benchPrefix.stdout.log" -StderrLog "$benchPrefix.stderr.log" `
-                -WindowTimeoutSec 60 -PaintTimeoutSec 60
-            $metrics = $metricsBase.Clone()
-            $metrics.example = $bench.Id
-            $metrics.build = 'release'
-            $metrics.painted = $r.Painted
-            foreach ($kv in ([ordered]@{
-                exe_bytes           = $exeBytes
-                runtime_bytes       = $runtimeBytes
-                bundle_bytes        = $exeBytes + $runtimeBytes
-                window_shown_ms     = $r.WindowShownMs
-                painted_ms          = $r.PaintedMs
-                peak_working_set_mb = $r.PeakWorkingSetMB
-                private_bytes_mb    = $r.PrivateBytesMB
-            }).GetEnumerator()) { $metrics[$kv.Key] = $kv.Value }
-        } catch {
-            Write-Host "::warning::release benchmark run failed: $_"
-            $metrics = $metricsBase.Clone()
-            $metrics.example = $bench.Id
-            $metrics.build = 'release'
-            $metrics.result = 'run failed'
-            $metrics.exe_bytes = $exeBytes
-            $metrics.runtime_bytes = $runtimeBytes
-            $metrics.bundle_bytes = $exeBytes + $runtimeBytes
-        }
+    } catch {
+        Write-Host "::warning::release benchmark failed: $_"
+        $metrics = [ordered]@{ example = $bench.Id; build = 'release'; result = "benchmark failed: $_" }
     }
     $metrics | ConvertTo-Json | Set-Content (Join-Path $OutDir 'metrics.json')
     Write-Host "::endgroup::"
@@ -344,22 +355,25 @@ foreach ($r in $results) {
     $peak = if ($null -ne $r.PeakMB) { "$($r.PeakMB) MB" } else { '' }
     $lines += "| $($r.Example) | $($r.Result) | $($r.Title) | $startup | $peak |"
 }
-if ($metrics -and $metrics.bundle_bytes) {
+if ($metrics) {
     $lines += ''
     $lines += "### Backend metrics — release ``$($metrics.example)`` runner"
     $lines += ''
     $lines += '| Metric | Value |'
     $lines += '|---|---|'
-    $lines += "| Runner exe | $('{0:N1}' -f ($metrics.exe_bytes / 1MB)) MB |"
-    $lines += "| Self-contained runtime | $('{0:N1}' -f ($metrics.runtime_bytes / 1MB)) MB |"
-    $lines += "| Deployable total | $('{0:N1}' -f ($metrics.bundle_bytes / 1MB)) MB |"
+    if ($metrics.bundle_bytes) {
+        $lines += "| Runner exe | $('{0:N1}' -f ($metrics.exe_bytes / 1MB)) MB |"
+        $lines += "| Self-contained runtime | $('{0:N1}' -f ($metrics.runtime_bytes / 1MB)) MB |"
+        $lines += "| Deployable total | $('{0:N1}' -f ($metrics.bundle_bytes / 1MB)) MB |"
+    }
     if ($metrics.painted) {
         $lines += "| Window shown | $($metrics.window_shown_ms) ms |"
         $lines += "| First paint | $($metrics.painted_ms) ms |"
         $lines += "| Peak working set | $($metrics.peak_working_set_mb) MB |"
         $lines += "| Private bytes | $($metrics.private_bytes_mb) MB |"
     } else {
-        $lines += "| Run | failed — see release-bench logs |"
+        $result = if ($metrics.result) { $metrics.result } else { 'failed — see release-bench logs' }
+        $lines += "| Result | $result |"
     }
 }
 Set-Content (Join-Path $OutDir 'summary.md') ($lines -join "`n")
