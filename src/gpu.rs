@@ -17,7 +17,8 @@ use waterui_core::Metadata;
 use waterui_core::layout::Point;
 use waterui_graphics::gpu_surface::{GestureState, GpuSurface, PointerState};
 use waterui_graphics::{
-    AppliedFilter, EffectFrameClock, EffectInput, EffectOutput, GpuContext, GpuRuntime, wgpu,
+    AppliedFilter, EffectContext, EffectFrameClock, EffectInput, EffectOutput, GpuContext,
+    GpuRuntime, wgpu,
 };
 use windows_core::Interface;
 
@@ -364,6 +365,8 @@ struct FilterState {
     clock: RefCell<EffectFrameClock>,
     busy: Cell<bool>,
     configured: Cell<bool>,
+    /// Whether `AppliedFilter::setup` compiled the pass graph.
+    setup_done: Cell<bool>,
     /// Last physical size the output swapchain was configured with.
     size: Cell<(u32, u32)>,
 }
@@ -413,6 +416,7 @@ pub(crate) fn render_applied_filter(
         filter: RefCell::new(filter),
         clock: RefCell::new(EffectFrameClock::new()),
         busy: Cell::new(false),
+        setup_done: Cell::new(false),
         size: Cell::new((0, 0)),
         configured: Cell::new(false),
     });
@@ -492,6 +496,26 @@ async fn filter_frame(
             h,
         );
         state.configured.set(true);
+    }
+
+    // `encode_render` requires a compiled pass graph; `Effect::setup` builds
+    // it asynchronously, so the first frame compiles before any capture work.
+    if !state.setup_done.get() {
+        let context = runtime.context();
+        let ctx = EffectContext {
+            device: &context.device,
+            queue: &context.queue,
+            shader_cache: context.shader_cache.as_ref(),
+            input_format: wgpu::TextureFormat::Bgra8Unorm,
+            output_format: wgpu::TextureFormat::Bgra8Unorm,
+        };
+        state
+            .filter
+            .borrow_mut()
+            .setup(&ctx)
+            .await
+            .expect("AppliedFilter setup failed");
+        state.setup_done.set(true);
     }
 
     let bitmap = RenderTargetBitmap::new().expect("RenderTargetBitmap::new");
