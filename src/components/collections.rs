@@ -341,14 +341,36 @@ fn render_tab_view(
                     let Some(tab_view) = weak_for_loaded.upgrade() else {
                         return;
                     };
+                    let fe = tab_view
+                        .cast::<FrameworkElement>()
+                        .expect("FrameworkElement");
                     tracing::info!(
-                        "TabView Loaded: index={:?} item_ok={} height={:?}",
+                        "TabView Loaded: index={:?} item_ok={} height={:?} valign={:?} halign={:?} desired={:?}",
                         tab_view.SelectedIndex(),
                         tab_view.SelectedItem().is_ok(),
-                        tab_view
-                            .cast::<FrameworkElement>()
-                            .and_then(|fe| fe.ActualHeight()),
+                        fe.ActualHeight(),
+                        fe.VerticalAlignment().map(|v| v.0),
+                        fe.HorizontalAlignment().map(|v| v.0),
+                        tab_view.cast::<UIElement>().and_then(|u| u.DesiredSize()),
                     );
+                    let mut node = fe.Parent().ok();
+                    for depth in 0..6 {
+                        let Some(p) = node else { break };
+                        match p.cast::<FrameworkElement>() {
+                            Ok(pfe) => tracing::info!(
+                                "  parent[{depth}]: FE h={:?} w={:?} valign={:?} halign={:?}",
+                                pfe.ActualHeight(),
+                                pfe.ActualWidth(),
+                                pfe.VerticalAlignment().map(|v| v.0),
+                                pfe.HorizontalAlignment().map(|v| v.0),
+                            ),
+                            Err(_) => tracing::info!("  parent[{depth}]: non-FrameworkElement"),
+                        }
+                        node = p
+                            .cast::<FrameworkElement>()
+                            .ok()
+                            .and_then(|f| f.Parent().ok());
+                    }
                     tab_view
                         .SetSelectedItem(&selected)
                         .expect("TabView::SetSelectedItem");

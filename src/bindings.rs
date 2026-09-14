@@ -15134,6 +15134,16 @@ impl IFrameworkElement {
             .ok()
         }
     }
+    pub(crate) fn HorizontalAlignment(&self) -> windows_core::Result<HorizontalAlignment> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).HorizontalAlignment)(
+                windows_core::Interface::as_raw(self),
+                &mut result__,
+            )
+            .map(|| result__)
+        }
+    }
     pub(crate) fn SetHorizontalAlignment(
         &self,
         value: HorizontalAlignment,
@@ -15144,6 +15154,16 @@ impl IFrameworkElement {
                 value,
             )
             .ok()
+        }
+    }
+    pub(crate) fn VerticalAlignment(&self) -> windows_core::Result<VerticalAlignment> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).VerticalAlignment)(
+                windows_core::Interface::as_raw(self),
+                &mut result__,
+            )
+            .map(|| result__)
         }
     }
     pub(crate) fn SetVerticalAlignment(
@@ -15186,6 +15206,16 @@ impl IFrameworkElement {
                 value.param().abi(),
             )
             .ok()
+        }
+    }
+    pub(crate) fn Parent(&self) -> windows_core::Result<DependencyObject> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).Parent)(
+                windows_core::Interface::as_raw(self),
+                &mut result__,
+            )
+            .and_then(|| windows_core::imp::Type::from_abi(result__))
         }
     }
     pub(crate) fn SetRequestedTheme(&self, value: ElementTheme) -> windows_core::Result<()> {
@@ -15376,12 +15406,18 @@ pub struct IFrameworkElement_Vtbl {
     MaxHeight: usize,
     pub SetMaxHeight:
         unsafe extern "system" fn(*mut core::ffi::c_void, f64) -> windows_core::HRESULT,
-    HorizontalAlignment: usize,
+    pub HorizontalAlignment: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut HorizontalAlignment,
+    ) -> windows_core::HRESULT,
     pub SetHorizontalAlignment: unsafe extern "system" fn(
         *mut core::ffi::c_void,
         HorizontalAlignment,
     ) -> windows_core::HRESULT,
-    VerticalAlignment: usize,
+    pub VerticalAlignment: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut VerticalAlignment,
+    ) -> windows_core::HRESULT,
     pub SetVerticalAlignment: unsafe extern "system" fn(
         *mut core::ffi::c_void,
         VerticalAlignment,
@@ -15414,7 +15450,10 @@ pub struct IFrameworkElement_Vtbl {
         *mut core::ffi::c_void,
         *mut core::ffi::c_void,
     ) -> windows_core::HRESULT,
-    Parent: usize,
+    pub Parent: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
     FlowDirection: usize,
     SetFlowDirection: usize,
     RequestedTheme: usize,
