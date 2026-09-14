@@ -167,37 +167,88 @@ $results = foreach ($ex in $examples) {
     $crateDir = Join-Path $genRoot $ex.Id
     New-Item -ItemType Directory -Force -Path (Join-Path $crateDir 'src') | Out-Null
 
-    Set-Content (Join-Path $crateDir 'src\main.rs') @"
+    if ($ex.CefDir) {
+        # A Windows CEF application is a DLL: the distribution's
+        # `bootstrapc.exe`/`bootstrap.exe` launcher is renamed to the app name,
+        # creates the OS-sandbox object, and hands it to the DLL's
+        # `RunWinMain`/`RunConsoleMain` export. `bootstrapc` keeps the console
+        # the harness captures. CEF subprocesses re-enter through the same
+        # pair — `--type` marks those launches and must reach
+        # `cef_execute_process` before any WinUI work.
+        Set-Content (Join-Path $crateDir 'src\lib.rs') @"
+fn main() {
+    if std::env::args_os()
+        .any(|arg| arg == "--type" || arg.to_string_lossy().starts_with("--type="))
+    {
+        std::process::exit(waterui_browser_cef::run_packaged_subprocess());
+    }
+    waterui_winui::run_app($($ex.Lib)::app(waterui::env::Environment::new()))
+        .expect("example run failed");
+}
+waterui_browser_cef::cef_bootstrap_main!(main);
+"@
+    } else {
+        Set-Content (Join-Path $crateDir 'src\main.rs') @"
 fn main() {
     waterui_winui::run_app($($ex.Lib)::app(waterui::env::Environment::new()))
         .expect("example run failed");
 }
 "@
+    }
 
     # cargo:rustc-link-arg-bins only applies to the package whose build script
     # emits it, so the self-contained manifest must be embedded by the runner
-    # crate's own build script — not by waterui-winui's.
-    Set-Content (Join-Path $crateDir 'build.rs') @'
+    # crate's own build script — not by waterui-winui's. CEF runners are
+    # cdylibs (the exe is the prebuilt launcher): the marker manifest embeds
+    # into the DLL via rustc-link-arg-cdylib instead.
+    $cdylibManifestArgs = if ($ex.CefDir) {
+        @'
+
+        // rustc-link-arg-bins does not apply to a cdylib, so re-emit the
+        // manifest as_self_contained just wrote with the cdylib link-arg kind.
+        let manifest = std::path::PathBuf::from(std::env::var("OUT_DIR").unwrap())
+            .join("app.manifest");
+        let target_env = std::env::var("CARGO_CFG_TARGET_ENV").unwrap_or_default();
+        let target_abi = std::env::var("CARGO_CFG_TARGET_ABI").unwrap_or_default();
+        match (target_env.as_str(), target_abi.as_str()) {
+            ("msvc", _) => {
+                println!("cargo:rustc-link-arg-cdylib=/MANIFEST:EMBED");
+                println!("cargo:rustc-link-arg-cdylib=/MANIFESTINPUT:{}", manifest.display());
+            }
+            ("gnu", "llvm") => {
+                println!("cargo:rustc-link-arg-cdylib=-Wl,/MANIFEST:EMBED");
+                println!("cargo:rustc-link-arg-cdylib=-Wl,/MANIFESTINPUT:{}", manifest.display());
+            }
+            _ => panic!("unsupported target environment: {target_env}{target_abi}"),
+        }
+'@
+    } else { '' }
+    Set-Content (Join-Path $crateDir 'build.rs') @"
 fn main() {
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
-        windows_reactor_setup::as_self_contained();
+        windows_reactor_setup::as_self_contained();$cdylibManifestArgs
     }
 }
-'@
+"@
 
     $exFwd = $ex.Dir -replace '\\', '/'
     # Declaring waterui-browser-cef here unifies its features with the
-    # example's dep: `cef-runtime` compiles the Windows sandbox shim
-    # (`native/windows_sandbox.cc`) that the link fails without.
+    # example's dep: `cef-runtime` selects the real engine (without it the
+    # crate's externs stay undefined and the link fails) and exports the
+    # `cef_bootstrap_main!` entry points the cdylib needs.
     $cefDepLine = if ($ex.CefDir) {
         "waterui-browser-cef = { path = `"$($ex.CefDir)`", features = [`"cef-runtime`"] }"
+    } else { '' }
+    $libSection = if ($ex.CefDir) {
+        $libName = "runner_$($ex.Id -replace '-', '_')"
+        "`n[lib]`nname = `"$libName`"`ncrate-type = [`"cdylib`"]"
     } else { '' }
     Set-Content (Join-Path $crateDir 'Cargo.toml') @"
 [package]
 name = "runner-$($ex.Id)"
 version = "0.0.0"
 edition = "2024"
-
+$libSection
 [workspace]
 
 [dependencies]
@@ -215,8 +266,18 @@ $patchSection
 
     $buildLog = "$prefix.build.log"
     cargo build --manifest-path (Join-Path $crateDir 'Cargo.toml') *> $buildLog
-    $exe = Join-Path $env:CARGO_TARGET_DIR "debug\runner-$($ex.Id).exe"
-    if ($LASTEXITCODE -ne 0 -or -not (Test-Path $exe)) {
+    $debugDir = Join-Path $env:CARGO_TARGET_DIR 'debug'
+    if ($ex.CefDir) {
+        # The build product is the application DLL; the exe is assembled from
+        # `bootstrapc.exe` during CEF staging below.
+        $runnerName = "runner_$($ex.Id -replace '-', '_')"
+        $built = Test-Path (Join-Path $debugDir "$runnerName.dll")
+        $exe = Join-Path $debugDir "$runnerName.exe"
+    } else {
+        $exe = Join-Path $debugDir "runner-$($ex.Id).exe"
+        $built = Test-Path $exe
+    }
+    if ($LASTEXITCODE -ne 0 -or -not $built) {
         Write-Host "::warning::$($ex.Id): build failed, see $buildLog"
         [pscustomobject]@{ Example = $ex.Id; Result = 'build failed'; Title = ''; PaintedMs = $null; PeakMB = $null }
         Write-Host "::endgroup::"
@@ -257,17 +318,51 @@ $patchSection
     # `CefRuntimePaths::packaged` resolves the exe's own directory as the CEF
     # runtime root: `cef-dll-sys` downloads the distribution into its build
     # output, so stage it beside the runner before launch.
-    if ($ex.CefDir -and -not (Test-Path (Join-Path (Split-Path $exe -Parent) 'libcef.dll'))) {
-        $cefRoot = Get-ChildItem (Join-Path $env:CARGO_TARGET_DIR 'debug\build\cef-dll-sys-*\out\cef_windows_*') -Directory -ErrorAction SilentlyContinue |
-            Where-Object { Test-Path (Join-Path $_.FullName 'libcef.dll') } |
-            Select-Object -First 1
-        if (-not $cefRoot) {
-            Write-Host "::warning::$($ex.Id): CEF distribution missing from cef-dll-sys build output"
-            [pscustomobject]@{ Example = $ex.Id; Result = 'run failed: CEF distribution not found in cef-dll-sys output'; Title = ''; PaintedMs = $null; PeakMB = $null }
-            Write-Host "::endgroup::"
-            continue
+    if ($ex.CefDir) {
+        $exeDir = Split-Path $exe -Parent
+        if (-not (Test-Path (Join-Path $exeDir 'libcef.dll'))) {
+            $cefRoot = Get-ChildItem (Join-Path $env:CARGO_TARGET_DIR 'debug\build\cef-dll-sys-*\out\cef_windows_*') -Directory -ErrorAction SilentlyContinue |
+                Where-Object { Test-Path (Join-Path $_.FullName 'libcef.dll') } |
+                Select-Object -First 1
+            if (-not $cefRoot) {
+                Write-Host "::warning::$($ex.Id): CEF distribution missing from cef-dll-sys build output"
+                [pscustomobject]@{ Example = $ex.Id; Result = 'run failed: CEF distribution not found in cef-dll-sys output'; Title = ''; PaintedMs = $null; PeakMB = $null }
+                Write-Host "::endgroup::"
+                continue
+            }
+            Copy-Item (Join-Path $cefRoot.FullName '*') $exeDir -Recurse -Force
         }
-        Copy-Item (Join-Path $cefRoot.FullName '*') (Split-Path $exe -Parent) -Recurse -Force
+        # The application executable is the console-subsystem launcher renamed
+        # to the DLL's basename: it creates the sandbox object, loads
+        # `runner_<id>.dll`, and calls `RunConsoleMain`. `bootstrap.exe` is the
+        # GUI-subsystem variant and would detach the console the harness
+        # captures.
+        Copy-Item (Join-Path $exeDir 'bootstrapc.exe') $exe -Force
+
+        # The launcher expects the application manifest beside the exe; the
+        # `cef` crate ships the canonical one for this layout.
+        $runnerMeta = cargo metadata --locked --format-version 1 --manifest-path (Join-Path $crateDir 'Cargo.toml') | ConvertFrom-Json
+        $cefPkg = $runnerMeta.packages | Where-Object { $_.name -eq 'cef' } | Select-Object -First 1
+        if (-not $cefPkg) { throw "cef package missing from the $($ex.Id) runner graph" }
+        Copy-Item (Join-Path (Split-Path $cefPkg.manifest_path -Parent) 'src\build_util\win\cef-app.exe.manifest') "$exe.manifest" -Force
+
+        # `CefRuntimePaths::validate` requires the runtime manifest
+        # `water package` writes; author the same identity from the resolved
+        # `cef-dll-sys` version (`<crate>+<cef version>`).
+        $cefSysPkg = $runnerMeta.packages | Where-Object { $_.name -eq 'cef-dll-sys' } | Select-Object -First 1
+        $cefVersion = ($cefSysPkg.version -split '\+')[-1]
+        $cefArch = switch ($env:PROCESSOR_ARCHITECTURE) {
+            'AMD64' { 'x86_64' } 'ARM64' { 'arm64' } 'X86' { 'x86' }
+            default { throw "unsupported arch: $env:PROCESSOR_ARCHITECTURE" }
+        }
+        $cefManifestDir = Join-Path $exeDir 'waterui-browser\cef'
+        New-Item -ItemType Directory -Force -Path $cefManifestDir | Out-Null
+        [ordered]@{
+            engine       = 'cef'
+            version      = $cefVersion
+            platform     = 'windows'
+            architecture = $cefArch
+        } | ConvertTo-Json -Compress | Set-Content (Join-Path $cefManifestDir 'runtime.json')
     }
 
     try {
