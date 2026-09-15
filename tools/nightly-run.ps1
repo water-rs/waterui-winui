@@ -450,9 +450,16 @@ $patchSection
     }
 
     try {
+        $captureArgs = @{}
+        if ($ex.CefDir) {
+            # CEF reads switches off the process command line — through
+            # bootstrapc.exe — so Chromium diagnostics land on stderr, where
+            # the harness already captures them.
+            $captureArgs.Arguments = @('--enable-logging=stderr', '--v=0')
+        }
         $r = & "$PSScriptRoot\capture-window.ps1" -Exe $exe -OutPrefix $prefix `
             -StdoutLog "$prefix.stdout.log" -StderrLog "$prefix.stderr.log" `
-            -WindowTimeoutSec 45 -PaintTimeoutSec 45
+            -WindowTimeoutSec 45 -PaintTimeoutSec 45 @captureArgs
         $status = if ($r.Painted) { 'painted' } else { 'window shown, uniform pixels' }
         if (-not $r.Painted) {
             Write-Host "::warning::$($ex.Id): no painted content detected"
