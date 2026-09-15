@@ -398,8 +398,12 @@ $patchSection
         # captures.
         Copy-Item (Join-Path $exeDir 'bootstrapc.exe') $exe -Force
 
-        # The launcher expects the application manifest beside the exe; the
-        # `cef` crate ships the canonical one for this layout.
+        # The launcher's documented layout keeps the application manifest
+        # beside the exe; bootstrapc.exe already embeds the same one, so this
+        # sidecar is inert but conventional. Self-contained WinRT activation is
+        # instead handled at runtime: waterui-winui re-activates the manifest
+        # embedded in the runner DLL via CreateActCtxW (the process context is
+        # fixed at launch from the exe and cannot be amended).
         $cefPkg = $runnerMeta.packages | Where-Object { $_.name -eq 'cef' } | Select-Object -First 1
         if (-not $cefPkg) { throw "cef package missing from the $($ex.Id) runner graph" }
         Copy-Item (Join-Path (Split-Path $cefPkg.manifest_path -Parent) 'src\build_util\win\cef-app.exe.manifest') "$exe.manifest" -Force

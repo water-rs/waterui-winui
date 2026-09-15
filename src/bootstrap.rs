@@ -22,6 +22,22 @@ windows_core::link!("kernel32.dll" "system" fn GetModuleHandleExW(flags: u32, na
 windows_core::link!("kernel32.dll" "system" fn LoadResource(module: *mut core::ffi::c_void, resource: *mut core::ffi::c_void) -> *mut core::ffi::c_void);
 windows_core::link!("kernel32.dll" "system" fn LockResource(resource: *mut core::ffi::c_void) -> *mut core::ffi::c_void);
 windows_core::link!("kernel32.dll" "system" fn SizeofResource(module: *mut core::ffi::c_void, resource: *mut core::ffi::c_void) -> u32);
+windows_core::link!("kernel32.dll" "system" fn CreateActCtxW(actctx: *const ACTCTXW) -> *mut core::ffi::c_void);
+windows_core::link!("kernel32.dll" "system" fn ActivateActCtx(ctx: *mut core::ffi::c_void, cookie: *mut usize) -> i32);
+
+/// `ACTCTXW` from `WinBase.h` — describes an activation context source.
+#[repr(C)]
+struct ACTCTXW {
+    cb_size: u32,
+    dw_flags: u32,
+    lp_source: PCWSTR,
+    w_processor_architecture: u16,
+    w_lang_id: u16,
+    lp_assembly_directory: PCWSTR,
+    lp_resource_name: PCWSTR,
+    lp_application_name: PCWSTR,
+    h_module: *mut core::ffi::c_void,
+}
 
 /// Whether the current process has MSIX package identity.
 pub fn is_packaged_process() -> windows_core::Result<bool> {
@@ -51,16 +67,15 @@ fn ensure_runtime() -> windows_core::Result<()> {
     if is_packaged_process()? {
         return Ok(());
     }
-    if self_contained_manifest_present() {
-        return if self_contained_runtime_present() {
-            Ok(())
-        } else {
-            Err(windows_core::Error::new(
+    if let Some(module) = self_contained_manifest_module() {
+        if !self_contained_runtime_present() {
+            return Err(windows_core::Error::new(
                 // HRESULT_FROM_WIN32(ERROR_MOD_NOT_FOUND)
                 HRESULT(0x8007_007Eu32.cast_signed()),
                 "self-contained Windows App Runtime files are missing",
-            ))
-        };
+            ));
+        }
+        return ensure_activation_context(module);
     }
     bootstrap_framework_dependency()
 }
@@ -190,19 +205,17 @@ fn self_contained_runtime_present() -> bool {
         .is_some_and(|dir| dir.join("Microsoft.WindowsAppRuntime.dll").is_file())
 }
 
-/// Looks for the marker string embedded into the application manifest when a
-/// build script stages a self-contained Windows App Runtime. The
+/// Returns the module whose embedded manifest carries the self-contained
+/// marker, or `None`. The marker normally lives in the exe's embedded
+/// manifest. A CEF bootstrap application is a DLL loaded by the renamed
+/// `bootstrap.exe`/`bootstrapc.exe` launcher — the exe's manifest is fixed at
+/// CEF build time, so the marker is embedded into the application DLL instead.
+/// Probing this code's own module covers both: for an exe build it resolves to
+/// the exe module, for the CEF DLL it resolves to the DLL. The
 /// `windows-reactor-setup` marker is recognized as well so that build script
 /// can be reused unchanged.
-fn self_contained_manifest_present() -> bool {
+fn self_contained_manifest_module() -> Option<*mut core::ffi::c_void> {
     unsafe {
-        // The marker normally lives in the exe's embedded manifest. A CEF
-        // bootstrap application is a DLL loaded by the renamed
-        // `bootstrap.exe`/`bootstrapc.exe` launcher — the exe's manifest is
-        // fixed at CEF build time, so the marker is embedded into the
-        // application DLL instead. Probing this code's own module covers both:
-        // for an exe build it resolves to the exe module, for the CEF DLL it
-        // resolves to the DLL.
         const FROM_ADDRESS_UNCHANGED_REFCOUNT: u32 = 0x2 | 0x4;
         let exe = GetModuleHandleW(std::ptr::null());
         let mut this = std::ptr::null_mut();
@@ -211,7 +224,66 @@ fn self_contained_manifest_present() -> bool {
             (module_manifest_has_marker as fn(*mut core::ffi::c_void) -> bool) as *const u16,
             &raw mut this,
         );
-        module_manifest_has_marker(exe) || (this != exe && module_manifest_has_marker(this))
+        if module_manifest_has_marker(exe) {
+            Some(exe)
+        } else if this != exe && module_manifest_has_marker(this) {
+            Some(this)
+        } else {
+            None
+        }
+    }
+}
+
+/// Pushes the self-contained manifest onto this thread's activation context.
+///
+/// The process activation context is built from the exe's manifest at launch,
+/// so an exe that embeds the manifest needs nothing more. A CEF bootstrap app
+/// is different: the exe is a prebuilt launcher whose manifest is fixed at CEF
+/// build time, and the self-contained manifest lives in the application DLL.
+/// For that layout the manifest is re-activated at runtime from the DLL's
+/// manifest resource (id 2, `ISOLATIONAWARE_MANIFEST_RESOURCE_ID`) so the
+/// registration-free `activatableClass` entries resolve `Microsoft.UI` types.
+/// The context is leaked on purpose — it must outlive the process.
+fn ensure_activation_context(module: *mut core::ffi::c_void) -> windows_core::Result<()> {
+    unsafe {
+        let exe = GetModuleHandleW(std::ptr::null());
+        if module == exe {
+            return Ok(());
+        }
+        let exe_dir = std::env::current_exe()
+            .ok()
+            .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+            .map(|d| windows_core::HSTRING::from(d.to_string_lossy().into_owned()))
+            .unwrap_or_default();
+        const ACTCTX_FLAG_ASSEMBLY_DIRECTORY_VALID: u32 = 0x0000_0004;
+        const ACTCTX_FLAG_RESOURCE_NAME_VALID: u32 = 0x0000_0008;
+        const ACTCTX_FLAG_HMODULE_VALID: u32 = 0x0000_0080;
+        const ISOLATIONAWARE_MANIFEST_RESOURCE_ID: usize = 2;
+        let actctx = ACTCTXW {
+            cb_size: size_of::<ACTCTXW>() as u32,
+            dw_flags: ACTCTX_FLAG_HMODULE_VALID
+                | ACTCTX_FLAG_RESOURCE_NAME_VALID
+                | ACTCTX_FLAG_ASSEMBLY_DIRECTORY_VALID,
+            lp_source: PCWSTR::null(),
+            w_processor_architecture: 0,
+            w_lang_id: 0,
+            // Registration-free probing resolves the manifest's <file> entries
+            // relative to the assembly directory — the runtime DLLs sit beside
+            // the exe.
+            lp_assembly_directory: PCWSTR::from_raw(exe_dir.as_ptr()),
+            lp_resource_name: ISOLATIONAWARE_MANIFEST_RESOURCE_ID as *const u16,
+            lp_application_name: PCWSTR::null(),
+            h_module: module,
+        };
+        let context = CreateActCtxW(&raw const actctx);
+        if context.is_null() || context == usize::MAX as *mut core::ffi::c_void {
+            return Err(windows_core::Error::from_thread());
+        }
+        let mut cookie = 0usize;
+        if ActivateActCtx(context, &raw mut cookie) == 0 {
+            return Err(windows_core::Error::from_thread());
+        }
+        Ok(())
     }
 }
 
