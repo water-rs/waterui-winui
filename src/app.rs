@@ -10,7 +10,7 @@ use crate::app_shim::{create_application, install_xaml_controls_resources};
 #[allow(clippy::wildcard_imports)] // the generated namespace
 use crate::bindings::*;
 use crate::bootstrap::{bootstrap_runtime, initialize_ui_thread};
-use crate::executor::DispatcherQueueExecutor;
+use crate::executor::{DeferredDispatcherExecutor, DispatcherQueueExecutor};
 use crate::renderer::WinUiRenderer;
 use crate::window::open_window;
 
@@ -46,20 +46,18 @@ pub fn run_app(make_app: impl FnOnce() -> App) -> windows_core::Result<()> {
     bootstrap_runtime()?;
     initialize_ui_thread()?;
 
-    // A fresh STA thread has no `DispatcherQueue` yet — create one. XAML's
-    // `Application::Start` adopts the calling thread's existing queue, so the
-    // executor installed below and the `OnLaunched` callback share one
-    // dispatcher. The controller owns the queue's lifetime; it stays bound in
-    // this frame, which outlives `Application::Start`'s blocking loop.
-    let _queue_controller = DispatcherQueueController::CreateOnCurrentThread()?;
-
     // View bodies and install hooks spawn tasks through executor-core's
     // thread-local and global slots (`.task(...)`, `spawn_local`, `spawn`).
-    // Install both before `make_app` runs.
+    // `Application::Start` owns creation of the UI thread's `DispatcherQueue`,
+    // so the local slot gets a `DeferredDispatcherExecutor`: schedules made
+    // while `make_app` runs (e.g. `waterui_browser_cef::install` starting the
+    // CEF message pump) are buffered and flushed onto the dispatcher when the
+    // `Start` callback activates it below.
+    let deferred = DeferredDispatcherExecutor::new();
     let _ = executor_core::try_init_global_executor(native_executor::NativeExecutor::new());
     let _ = executor_core::try_init_local_executor(
         waterui::task::monitored_local_executor_with_probes(
-            DispatcherQueueExecutor::for_current_thread()?,
+            deferred.clone(),
             None::<std::sync::Arc<dyn waterui::task::RuntimeProbe>>,
         ),
     );
@@ -69,6 +67,11 @@ pub fn run_app(make_app: impl FnOnce() -> App) -> windows_core::Result<()> {
     let env = RefCell::new(Some(env));
 
     Application::Start(&ApplicationInitializationCallback::new(move |_params| {
+        // The UI thread's `DispatcherQueue` now exists: bind it to the
+        // executor installed before `make_app` and replay buffered schedules.
+        deferred
+            .activate()
+            .expect("UI thread DispatcherQueue missing inside Application::Start");
         let windows = windows
             .borrow_mut()
             .take()
