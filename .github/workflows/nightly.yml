@@ -4,6 +4,12 @@ on:
   schedule:
     - cron: '0 2 * * *'
   workflow_dispatch:
+    inputs:
+      example:
+        description: Run only this example id (empty = all)
+        required: false
+        type: string
+        default: ''
 
 jobs:
   # Discovers the example set once so the examples job can shard one example
@@ -42,6 +48,15 @@ jobs:
         run: |
           $json = waterui-winui\tools\nightly-run.ps1 -WateruiPath .\waterui -OutDir .\prepare-out -List |
             Select-Object -Last 1
+          $ids = @($json | ConvertFrom-Json)
+          $only = '${{ inputs.example }}'
+          if ($only) {
+            $ids = @($ids | Where-Object { $_ -eq $only })
+            if (-not $ids) { throw "no example matches '$only'" }
+            # Unary comma keeps a single id wrapped in an array — a bare
+            # JSON string would break fromJSON in the examples matrix.
+            $json = ,$ids | ConvertTo-Json -Compress
+          }
           "examples=$json" >> $env:GITHUB_OUTPUT
 
   # One example per job: produce the release package, measure its size, then
