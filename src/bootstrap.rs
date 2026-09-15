@@ -259,11 +259,11 @@ fn ensure_activation_context(module: *mut core::ffi::c_void) -> windows_core::Re
         }
         let exe_dir = std::env::current_exe()
             .ok()
-            .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+            .and_then(|p| p.parent().map(Path::to_path_buf))
             .map(|d| windows_core::HSTRING::from(d.to_string_lossy().into_owned()))
             .unwrap_or_default();
         let actctx = ACTCTXW {
-            cb_size: size_of::<ACTCTXW>() as u32,
+            cb_size: u32::try_from(size_of::<ACTCTXW>()).expect("ACTCTXW fits in u32"),
             dw_flags: ACTCTX_FLAG_HMODULE_VALID
                 | ACTCTX_FLAG_RESOURCE_NAME_VALID
                 | ACTCTX_FLAG_ASSEMBLY_DIRECTORY_VALID,
