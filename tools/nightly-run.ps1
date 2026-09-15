@@ -224,6 +224,12 @@ fn main() {
             ("msvc", _) => {
                 println!("cargo:rustc-link-arg-cdylib=/MANIFEST:EMBED");
                 println!("cargo:rustc-link-arg-cdylib=/MANIFESTINPUT:{}", manifest.display());
+                // rustc passes /DEBUG unconditionally, so a PDB is written even
+                // with debug=0 — and writing one for a DLL importing all of
+                // libcef.lib kills mspdbsrv with LNK1201. The capture harness
+                // needs no symbols; skip the PDB entirely.
+                println!("cargo:rustc-link-arg-cdylib=/DEBUG:NONE");
+                println!("cargo:rustc-link-arg-bins=/DEBUG:NONE");
             }
             ("gnu", "llvm") => {
                 println!("cargo:rustc-link-arg-cdylib=-Wl,/MANIFEST:EMBED");
