@@ -90,10 +90,11 @@ $examples = foreach ($p in $meta.packages) {
 }
 if (-not $examples) { throw "no runnable examples discovered under $examplesRoot" }
 if ($List) {
-    # The prepare job reads this from stdout to build the shard matrix. The
-    # array is forced so a single example still emits `[ "id" ]`, which
-    # `fromJSON` needs for a matrix list.
-    [Console]::Out.Write((@($examples | ForEach-Object { $_.Id }) | ConvertTo-Json -Compress))
+    # The prepare job pipes this script's success stream to build the shard
+    # matrix — a bare output expression, since `[Console]::Out` bypasses the
+    # pipeline. The array is forced so a single example still emits `[ "id" ]`,
+    # which `fromJSON` needs for a matrix list.
+    Write-Output (@($examples | ForEach-Object { $_.Id }) | ConvertTo-Json -Compress)
     exit 0
 }
 if ($Only) {
