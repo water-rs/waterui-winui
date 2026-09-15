@@ -25,8 +25,15 @@ windows_core::link!("kernel32.dll" "system" fn SizeofResource(module: *mut core:
 windows_core::link!("kernel32.dll" "system" fn CreateActCtxW(actctx: *const ACTCTXW) -> *mut core::ffi::c_void);
 windows_core::link!("kernel32.dll" "system" fn ActivateActCtx(ctx: *mut core::ffi::c_void, cookie: *mut usize) -> i32);
 
+const ACTCTX_FLAG_ASSEMBLY_DIRECTORY_VALID: u32 = 0x0000_0004;
+const ACTCTX_FLAG_RESOURCE_NAME_VALID: u32 = 0x0000_0008;
+const ACTCTX_FLAG_HMODULE_VALID: u32 = 0x0000_0080;
+/// Manifest resource id used for DLLs.
+const ISOLATIONAWARE_MANIFEST_RESOURCE_ID: usize = 2;
+
 /// `ACTCTXW` from `WinBase.h` — describes an activation context source.
 #[repr(C)]
+#[allow(clippy::upper_case_acronyms)]
 struct ACTCTXW {
     cb_size: u32,
     dw_flags: u32,
@@ -255,10 +262,6 @@ fn ensure_activation_context(module: *mut core::ffi::c_void) -> windows_core::Re
             .and_then(|p| p.parent().map(|d| d.to_path_buf()))
             .map(|d| windows_core::HSTRING::from(d.to_string_lossy().into_owned()))
             .unwrap_or_default();
-        const ACTCTX_FLAG_ASSEMBLY_DIRECTORY_VALID: u32 = 0x0000_0004;
-        const ACTCTX_FLAG_RESOURCE_NAME_VALID: u32 = 0x0000_0008;
-        const ACTCTX_FLAG_HMODULE_VALID: u32 = 0x0000_0080;
-        const ISOLATIONAWARE_MANIFEST_RESOURCE_ID: usize = 2;
         let actctx = ACTCTXW {
             cb_size: size_of::<ACTCTXW>() as u32,
             dw_flags: ACTCTX_FLAG_HMODULE_VALID
