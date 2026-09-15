@@ -1,12 +1,21 @@
-# Nightly example runner: builds every waterui example against this backend
-# and captures a PNG of each running window. Generates one standalone crate
-# per example under target\nightly so a single example's build or run failure
-# cannot take the others down; crates.io is patched to the checked-out
+# Nightly example runner: packages every waterui example against this backend
+# in release, measures the deployable footprint, then runs the packaged binary
+# to capture a PNG, startup latency, and memory. Generates one standalone
+# crate per example under target\nightly so a single example's build or run
+# failure cannot take the others down; crates.io is patched to the checked-out
 # waterui workspace so the `App` type unifies between examples and backend.
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)] [string] $WateruiPath,
-    [Parameter(Mandatory)] [string] $OutDir
+    [Parameter(Mandatory)] [string] $OutDir,
+    # Restrict the run to one example id (matrix jobs shard by example).
+    [string] $Only,
+    # Emit the discovered example list as JSON and stop — the workflow's
+    # prepare job uses this to build the shard matrix.
+    [switch] $List,
+    # Build configuration; nightly measures the packaged artifact, which is a
+    # release build — a debug run would report performance no user sees.
+    [ValidateSet('debug', 'release')] [string] $Configuration = 'release'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -80,6 +89,17 @@ $examples = foreach ($p in $meta.packages) {
     }
 }
 if (-not $examples) { throw "no runnable examples discovered under $examplesRoot" }
+if ($List) {
+    # The prepare job reads this from stdout to build the shard matrix. The
+    # array is forced so a single example still emits `[ "id" ]`, which
+    # `fromJSON` needs for a matrix list.
+    [Console]::Out.Write((@($examples | ForEach-Object { $_.Id }) | ConvertTo-Json -Compress))
+    exit 0
+}
+if ($Only) {
+    $examples = @($examples | Where-Object { $_.Id -eq $Only })
+    if (-not $examples) { throw "example '$Only' not discovered under $examplesRoot" }
+}
 Write-Host "Discovered $($examples.Count) examples: $($examples.Id -join ', ')"
 
 # windows-reactor-setup stages the self-contained runtime from build scripts,
@@ -161,8 +181,26 @@ function Repair-SelfContainedRuntime([string] $Dest) {
 }
 
 $repoFwd = $repo -replace '\\', '/'
+
+# Emits one result object, persists it as result-<id>.json for the workflow's
+# aggregate job, and returns it for the per-job summary.
+function Emit-Result($ex, [string] $Result, [string] $Title, $PaintedMs, $PeakMB, $PrivateMB, $PackageBytes) {
+    $r = [pscustomobject]@{
+        Example      = $ex.Id
+        Result       = $Result
+        Title        = $Title
+        PaintedMs    = $PaintedMs
+        PeakMB       = $PeakMB
+        PrivateMB    = $PrivateMB
+        PackageBytes = $PackageBytes
+    }
+    $r | ConvertTo-Json | Set-Content (Join-Path $OutDir "result-$($ex.Id).json")
+    return $r
+}
+
 $results = foreach ($ex in $examples) {
     Write-Host "::group::$($ex.Id)"
+    $packageBytes = $null
     $prefix = Join-Path $OutDir $ex.Id
     $crateDir = Join-Path $genRoot $ex.Id
     New-Item -ItemType Directory -Force -Path (Join-Path $crateDir 'src') | Out-Null
@@ -281,21 +319,23 @@ $patchSection
 "@
 
     $buildLog = "$prefix.build.log"
-    cargo build --manifest-path (Join-Path $crateDir 'Cargo.toml') *> $buildLog
-    $debugDir = Join-Path $env:CARGO_TARGET_DIR 'debug'
+    $buildArgs = @('build', '--manifest-path', (Join-Path $crateDir 'Cargo.toml'))
+    if ($Configuration -eq 'release') { $buildArgs += '--release' }
+    cargo @buildArgs *> $buildLog
+    $profileDir = Join-Path $env:CARGO_TARGET_DIR $Configuration
     if ($ex.CefDir) {
         # The build product is the application DLL; the exe is assembled from
         # `bootstrapc.exe` during CEF staging below.
         $runnerName = "runner_$($ex.Id -replace '-', '_')"
-        $built = Test-Path (Join-Path $debugDir "$runnerName.dll")
-        $exe = Join-Path $debugDir "$runnerName.exe"
+        $built = Test-Path (Join-Path $profileDir "$runnerName.dll")
+        $exe = Join-Path $profileDir "$runnerName.exe"
     } else {
-        $exe = Join-Path $debugDir "runner-$($ex.Id).exe"
+        $exe = Join-Path $profileDir "runner-$($ex.Id).exe"
         $built = Test-Path $exe
     }
     if ($LASTEXITCODE -ne 0 -or -not $built) {
         Write-Host "::warning::$($ex.Id): build failed, see $buildLog"
-        [pscustomobject]@{ Example = $ex.Id; Result = 'build failed'; Title = ''; PaintedMs = $null; PeakMB = $null }
+        Emit-Result $ex 'build failed' '' $null $null $null $null
         Write-Host "::endgroup::"
         continue
     }
@@ -305,7 +345,7 @@ $patchSection
     # When the staged DLL is absent, capture the build-script stdout and the
     # staging cache listing so the crate's silent println! diagnostics are
     # visible in the artifact, then repair from the same cache.
-    $runtimeDir = Join-Path $env:CARGO_TARGET_DIR 'debug'
+    $runtimeDir = $profileDir
     if (-not (Test-Path (Join-Path $runtimeDir 'Microsoft.WindowsAppRuntime.dll'))) {
         Get-ChildItem (Join-Path $runtimeDir 'build') -Directory -ErrorAction SilentlyContinue |
             Where-Object { $_.Name -like 'runner-*' -or $_.Name -like 'waterui-winui-*' } |
@@ -324,28 +364,30 @@ $patchSection
         catch { Write-Host "::warning::$($ex.Id): runtime repair failed: $_" }
         if (-not $repaired) {
             Write-Host "::warning::$($ex.Id): self-contained runtime not staged beside exe"
-            [pscustomobject]@{ Example = $ex.Id; Result = 'run failed: self-contained runtime not staged beside exe'; Title = ''; PaintedMs = $null; PeakMB = $null }
+            Emit-Result $ex 'run failed: self-contained runtime not staged beside exe' '' $null $null $null $null
             Write-Host "::endgroup::"
             continue
         }
         Write-Host "$($ex.Id): repaired self-contained runtime beside exe"
     }
 
+    $runnerMeta = cargo metadata --locked --format-version 1 --manifest-path (Join-Path $crateDir 'Cargo.toml') | ConvertFrom-Json
+
     # `CefRuntimePaths::packaged` resolves the exe's own directory as the CEF
     # runtime root: `cef-dll-sys` downloads the distribution into its build
     # output, so stage it beside the runner before launch.
     if ($ex.CefDir) {
         $exeDir = Split-Path $exe -Parent
+        $cefRoot = Get-ChildItem (Join-Path $profileDir 'build\cef-dll-sys-*\out\cef_windows_*') -Directory -ErrorAction SilentlyContinue |
+            Where-Object { Test-Path (Join-Path $_.FullName 'libcef.dll') } |
+            Select-Object -First 1
+        if (-not $cefRoot) {
+            Write-Host "::warning::$($ex.Id): CEF distribution missing from cef-dll-sys build output"
+            Emit-Result $ex 'run failed: CEF distribution not found in cef-dll-sys output' '' $null $null $null $null
+            Write-Host "::endgroup::"
+            continue
+        }
         if (-not (Test-Path (Join-Path $exeDir 'libcef.dll'))) {
-            $cefRoot = Get-ChildItem (Join-Path $env:CARGO_TARGET_DIR 'debug\build\cef-dll-sys-*\out\cef_windows_*') -Directory -ErrorAction SilentlyContinue |
-                Where-Object { Test-Path (Join-Path $_.FullName 'libcef.dll') } |
-                Select-Object -First 1
-            if (-not $cefRoot) {
-                Write-Host "::warning::$($ex.Id): CEF distribution missing from cef-dll-sys build output"
-                [pscustomobject]@{ Example = $ex.Id; Result = 'run failed: CEF distribution not found in cef-dll-sys output'; Title = ''; PaintedMs = $null; PeakMB = $null }
-                Write-Host "::endgroup::"
-                continue
-            }
             Copy-Item (Join-Path $cefRoot.FullName '*') $exeDir -Recurse -Force
         }
         # The application executable is the console-subsystem launcher renamed
@@ -357,7 +399,6 @@ $patchSection
 
         # The launcher expects the application manifest beside the exe; the
         # `cef` crate ships the canonical one for this layout.
-        $runnerMeta = cargo metadata --locked --format-version 1 --manifest-path (Join-Path $crateDir 'Cargo.toml') | ConvertFrom-Json
         $cefPkg = $runnerMeta.packages | Where-Object { $_.name -eq 'cef' } | Select-Object -First 1
         if (-not $cefPkg) { throw "cef package missing from the $($ex.Id) runner graph" }
         Copy-Item (Join-Path (Split-Path $cefPkg.manifest_path -Parent) 'src\build_util\win\cef-app.exe.manifest') "$exe.manifest" -Force
@@ -381,6 +422,32 @@ $patchSection
         } | ConvertTo-Json -Compress | Set-Content (Join-Path $cefManifestDir 'runtime.json')
     }
 
+    # Deployable footprint: the executable (plus the app DLL for CEF) and
+    # exactly what staging placed beside it — the self-contained runtime
+    # allowlist from windows-reactor-setup's runtime.txt, the WebView2
+    # projection, and for CEF the whole staged distribution.
+    $exeDir = Split-Path $exe -Parent
+    $packageBytes = [long](Get-Item $exe).Length
+    if ($ex.CefDir) { $packageBytes += [long](Get-Item "$exeDir\$runnerName.dll").Length }
+    $setupPkg = $runnerMeta.packages | Where-Object { $_.name -eq 'windows-reactor-setup' } | Select-Object -First 1
+    if (-not $setupPkg) { throw 'windows-reactor-setup absent from runner dependency graph' }
+    $stagedNames = Get-Content (Join-Path (Split-Path $setupPkg.manifest_path -Parent) 'assets\runtime.txt') |
+        ForEach-Object { $_.Trim() } | Where-Object { $_ }
+    $packagePaths = @($stagedNames) + 'Microsoft.Web.WebView2.Core.dll'
+    if ($ex.CefDir) {
+        # Every top-level entry the CEF staging copied out of the dist, plus
+        # the launcher manifest and generated runtime identity.
+        $packagePaths += Get-ChildItem $cefRoot.FullName | ForEach-Object { $_.Name }
+        $packagePaths += (Split-Path "$exe.manifest" -Leaf), 'waterui-browser'
+    }
+    foreach ($name in $packagePaths) {
+        $item = Join-Path $exeDir $name
+        if (Test-Path $item) {
+            $packageBytes += [long]((Get-ChildItem $item -Recurse -File |
+                Measure-Object Length -Sum).Sum)
+        }
+    }
+
     try {
         $r = & "$PSScriptRoot\capture-window.ps1" -Exe $exe -OutPrefix $prefix `
             -StdoutLog "$prefix.stdout.log" -StderrLog "$prefix.stderr.log" `
@@ -393,131 +460,21 @@ $patchSection
                 $status = "$status ($($r.Diagnostics -replace '\s+', ' ' -replace '\|', '/'))"
             }
         }
-        [pscustomobject]@{ Example = $ex.Id; Result = $status; Title = $r.Title; PaintedMs = $r.PaintedMs; PeakMB = $r.PeakWorkingSetMB }
+        Emit-Result $ex $status $r.Title $r.PaintedMs $r.PeakWorkingSetMB $r.PrivateBytesMB $packageBytes
     } catch {
         $msg = "$_" -replace '\s+', ' ' -replace '\|', '/'
         Write-Host "::warning::$($ex.Id): $msg"
-        [pscustomobject]@{ Example = $ex.Id; Result = "run failed: $msg"; Title = ''; PaintedMs = $null; PeakMB = $null }
+        Emit-Result $ex "run failed: $msg" '' $null $null $null $packageBytes
     }
     Write-Host "::endgroup::"
 }
 
-# --- Release benchmark ------------------------------------------------------
-# One representative example is rebuilt in release so the shipped binary's
-# size, startup latency, and memory footprint are tracked nightly. `form` is
-# already the CI smoke example, so its content is a stable reference.
-$metrics = $null
-$bench = $examples | Where-Object { $_.Id -eq 'form' } | Select-Object -First 1
-if (-not $bench) { $bench = $examples | Select-Object -First 1 }
-if ($bench) {
-    Write-Host "::group::release benchmark: $($bench.Id)"
-    # The benchmark is auxiliary reporting: a failure inside it must warn and
-    # degrade to a failure record, never take down the example summary.
-    try {
-        # Identity fields keep metrics.json self-describing across nightly
-        # runs so artifacts can be concatenated into a trend series.
-        $benchSha = ''
-        try { $benchSha = (git -C $repo rev-parse HEAD).Trim() } catch { }
-        $runAt = [DateTime]::UtcNow.ToString('o')
-        $crateDir = Join-Path $genRoot $bench.Id
-        $benchLog = Join-Path $OutDir "$($bench.Id).release-build.log"
-        cargo build --release --manifest-path (Join-Path $crateDir 'Cargo.toml') *> $benchLog
-        $releaseExe = Join-Path $env:CARGO_TARGET_DIR "release\runner-$($bench.Id).exe"
-        if ($LASTEXITCODE -ne 0 -or -not (Test-Path $releaseExe)) {
-            Write-Host "::warning::release benchmark build failed, see $benchLog"
-            $metrics = [ordered]@{
-                run_at = $runAt; sha = $benchSha
-                example = $bench.Id; build = 'release'; result = 'build failed'
-            }
-        } else {
-            $releaseDir = Split-Path $releaseExe -Parent
-            # The runner's build script stages the self-contained runtime
-            # beside the exe; repair from the shared cache when absent.
-            if (-not (Test-Path (Join-Path $releaseDir 'Microsoft.WindowsAppRuntime.dll'))) {
-                $null = Repair-SelfContainedRuntime $releaseDir
-            }
-            $exeBytes = (Get-Item $releaseExe).Length
-            # Deployable footprint: the exe plus exactly what the runner's
-            # build script stages beside it — the allowlist in the crate's
-            # runtime.txt (top-level msix entries, dirs included) and the
-            # WebView2 projection. The package is optional in waterui-winui's
-            # graph, so resolve it from the runner crate that built the exe.
-            $runnerMeta = cargo metadata --format-version 1 --manifest-path (Join-Path $crateDir 'Cargo.toml') | ConvertFrom-Json
-            $setupPkg = $runnerMeta.packages | Where-Object { $_.name -eq 'windows-reactor-setup' } | Select-Object -First 1
-            if (-not $setupPkg) { throw 'windows-reactor-setup absent from runner dependency graph' }
-            $stagedNames = Get-Content (Join-Path (Split-Path $setupPkg.manifest_path -Parent) 'assets\runtime.txt') |
-                ForEach-Object { $_.Trim() } | Where-Object { $_ }
-            $runtimeBytes = 0L
-            foreach ($name in @($stagedNames) + 'Microsoft.Web.WebView2.Core.dll') {
-                $item = Join-Path $releaseDir $name
-                if (Test-Path $item) {
-                    $runtimeBytes += [long]((Get-ChildItem $item -Recurse -File |
-                        Measure-Object Length -Sum).Sum)
-                }
-            }
-            $benchPrefix = Join-Path $OutDir 'release-bench'
-            try {
-                $r = & "$PSScriptRoot\capture-window.ps1" -Exe $releaseExe -OutPrefix $benchPrefix `
-                    -StdoutLog "$benchPrefix.stdout.log" -StderrLog "$benchPrefix.stderr.log" `
-                    -WindowTimeoutSec 60 -PaintTimeoutSec 60
-                $metrics = [ordered]@{
-                    run_at              = $runAt
-                    sha                 = $benchSha
-                    example             = $bench.Id
-                    build               = 'release'
-                    painted             = $r.Painted
-                    exe_bytes           = $exeBytes
-                    runtime_bytes       = $runtimeBytes
-                    bundle_bytes        = $exeBytes + $runtimeBytes
-                    window_shown_ms     = $r.WindowShownMs
-                    painted_ms          = $r.PaintedMs
-                    peak_working_set_mb = $r.PeakWorkingSetMB
-                    private_bytes_mb    = $r.PrivateBytesMB
-                }
-            } catch {
-                Write-Host "::warning::release benchmark run failed: $_"
-                $metrics = [ordered]@{
-                    run_at = $runAt; sha = $benchSha
-                    example = $bench.Id; build = 'release'; result = 'run failed'
-                    exe_bytes = $exeBytes; runtime_bytes = $runtimeBytes
-                    bundle_bytes = $exeBytes + $runtimeBytes
-                }
-            }
-        }
-    } catch {
-        Write-Host "::warning::release benchmark failed: $_"
-        $metrics = [ordered]@{ example = $bench.Id; build = 'release'; result = "benchmark failed: $_" }
-    }
-    $metrics | ConvertTo-Json | Set-Content (Join-Path $OutDir 'metrics.json')
-    Write-Host "::endgroup::"
-}
-
-$lines = @('| Example | Result | Window title | Startup | Peak WS |', '|---|---|---|---|---|')
+$lines = @('| Example | Result | Package | Window title | First paint | Peak WS |', '|---|---|---|---|---|---|')
 foreach ($r in $results) {
+    $package = if ($null -ne $r.PackageBytes) { "$('{0:N1}' -f ($r.PackageBytes / 1MB)) MB" } else { '' }
     $startup = if ($null -ne $r.PaintedMs) { "$($r.PaintedMs) ms" } else { '' }
     $peak = if ($null -ne $r.PeakMB) { "$($r.PeakMB) MB" } else { '' }
-    $lines += "| $($r.Example) | $($r.Result) | $($r.Title) | $startup | $peak |"
-}
-if ($metrics) {
-    $lines += ''
-    $lines += "### Backend metrics — release ``$($metrics.example)`` runner"
-    $lines += ''
-    $lines += '| Metric | Value |'
-    $lines += '|---|---|'
-    if ($metrics.bundle_bytes) {
-        $lines += "| Runner exe | $('{0:N1}' -f ($metrics.exe_bytes / 1MB)) MB |"
-        $lines += "| Self-contained runtime | $('{0:N1}' -f ($metrics.runtime_bytes / 1MB)) MB |"
-        $lines += "| Deployable total | $('{0:N1}' -f ($metrics.bundle_bytes / 1MB)) MB |"
-    }
-    if ($metrics.painted) {
-        $lines += "| Window shown | $($metrics.window_shown_ms) ms |"
-        $lines += "| First paint | $($metrics.painted_ms) ms |"
-        $lines += "| Peak working set | $($metrics.peak_working_set_mb) MB |"
-        $lines += "| Private bytes | $($metrics.private_bytes_mb) MB |"
-    } else {
-        $result = if ($metrics.result) { $metrics.result } else { 'failed — see release-bench logs' }
-        $lines += "| Result | $result |"
-    }
+    $lines += "| $($r.Example) | $($r.Result) | $package | $($r.Title) | $startup | $peak |"
 }
 Set-Content (Join-Path $OutDir 'summary.md') ($lines -join "`n")
 if ($env:GITHUB_STEP_SUMMARY) {
