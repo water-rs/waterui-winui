@@ -6,16 +6,14 @@ on:
   workflow_dispatch:
 
 jobs:
-  examples:
-    name: windows-latest (examples)
+  # Discovers the example set once so the examples job can shard one example
+  # per runner — the fleet allows ~60 concurrent windows-latest jobs.
+  prepare:
     runs-on: windows-latest
-    timeout-minutes: 120
-    # Mirrors ci.yml: debug info and incremental artifacts would multiply the
-    # target dir past the hosted runner's disk (LNK1201 on the cef runners).
-    env:
-      CARGO_PROFILE_DEV_DEBUG: "0"
-      CARGO_PROFILE_TEST_DEBUG: "0"
-      CARGO_INCREMENTAL: 0
+    timeout-minutes: 15
+    outputs:
+      examples: ${{ steps.list.outputs.examples }}
+      ref: ${{ steps.pin.outputs.ref }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -39,15 +37,71 @@ jobs:
           path: waterui
           submodules: recursive
       - uses: dtolnay/rust-toolchain@stable
+      - name: Discover examples
+        id: list
+        run: |
+          $json = waterui-winui\tools\nightly-run.ps1 -WateruiPath .\waterui -OutDir .\prepare-out -List |
+            Select-Object -Last 1
+          "examples=$json" >> $env:GITHUB_OUTPUT
+
+  # One example per job: produce the release package, measure its size, then
+  # run the packaged binary for memory, first paint, and a screenshot.
+  examples:
+    needs: prepare
+    runs-on: windows-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        example: ${{ fromJSON(needs.prepare.outputs.examples) }}
+    env:
+      CARGO_INCREMENTAL: 0
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: waterui-winui
+      - uses: actions/checkout@v4
+        with:
+          repository: water-rs/waterui
+          ref: ${{ needs.prepare.outputs.ref }}
+          path: waterui
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+        with:
+          # All matrix jobs share one cache — the base dep graph is identical.
+          shared-key: nightly
       - name: Install DirectX Shader Compiler
         uses: tracel-ai/github-actions/install-dxc@295f2fdbae5271f4f8ad56d634e4ff6a95daafc8
-      - name: Run all examples and screenshot
-        run: waterui-winui\tools\nightly-run.ps1 -WateruiPath .\waterui -OutDir .\nightly-artifacts
-        timeout-minutes: 110
+      - name: Package and run ${{ matrix.example }}
+        run: waterui-winui\tools\nightly-run.ps1 -WateruiPath .\waterui -OutDir .\nightly-artifacts -Only ${{ matrix.example }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: example-${{ matrix.example }}
+          path: nightly-artifacts
+
+  summarize:
+    needs: [prepare, examples]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: waterui-winui
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: example-*
+          path: artifacts
+          merge-multiple: true
+      - name: Merge results
+        shell: pwsh
+        run: waterui-winui/tools/nightly-merge.ps1 -ArtifactsDir artifacts -OutDir merged
+      - name: Publish summary
+        run: cat merged/summary.md >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: example-screenshots
-          path: nightly-artifacts
-          if-no-files-found: error
+          path: merged

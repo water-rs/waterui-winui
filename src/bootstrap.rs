@@ -217,6 +217,27 @@ fn self_contained_manifest_present() -> bool {
 
 #[allow(clippy::manual_dangling_ptr)] // FindResourceW uses low pointer values for ordinals.
 fn module_manifest_has_marker(module: *mut core::ffi::c_void) -> bool {
+    unsafe {
+        if module.is_null() {
+            return false;
+        }
+        // Manifest resource ids: 1 for executables, 2 (ISOLATIONAWARE_
+        // MANIFEST_RESOURCE_ID) for DLLs. A CEF bootstrap app embeds its
+        // manifest into the DLL, so probe both.
+        for id in [1usize, 2] {
+            let resource = FindResourceW(module, id as *const u16, 24usize as *const u16);
+            if !resource.is_null() && resource_has_marker(module, resource) {
+                return true;
+            }
+        }
+        false
+    }
+}
+
+unsafe fn resource_has_marker(
+    module: *mut core::ffi::c_void,
+    resource: *mut core::ffi::c_void,
+) -> bool {
     const MARKERS: &[&str] = &[
         SELF_CONTAINED_MARKER,
         // windows-reactor-setup embeds this marker when it stages the runtime.
@@ -224,13 +245,6 @@ fn module_manifest_has_marker(module: *mut core::ffi::c_void) -> bool {
     ];
 
     unsafe {
-        if module.is_null() {
-            return false;
-        }
-        let resource = FindResourceW(module, 1usize as *const u16, 24usize as *const u16);
-        if resource.is_null() {
-            return false;
-        }
         let size = SizeofResource(module, resource) as usize;
         let loaded = LoadResource(module, resource);
         if loaded.is_null() {
