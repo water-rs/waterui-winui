@@ -15,7 +15,7 @@ fn main() {
 fn run() {
     use waterui::env::Environment;
 
-    waterui_winui::run_app(app(Environment::new())).expect("WinUI form run failed");
+    waterui_winui::run_app(|| app(Environment::new())).expect("WinUI form run failed");
 }
 
 #[cfg(target_os = "windows")]

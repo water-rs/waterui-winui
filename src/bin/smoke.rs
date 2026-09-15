@@ -28,6 +28,6 @@ fn run() {
             closer.set(WindowState::Closed);
         })
     });
-    waterui_winui::run_app(App::new_with_windows([window], Environment::new()))
+    waterui_winui::run_app(move || App::new_with_windows([window], Environment::new()))
         .expect("WinUI smoke run failed");
 }

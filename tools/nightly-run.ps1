@@ -186,21 +186,21 @@ fn main() {
     {
         std::process::exit(waterui_browser_cef::run_packaged_subprocess());
     }
-    waterui_winui::run_app($($ex.Lib)::app(waterui::env::Environment::new()))
+    waterui_winui::run_app(|| $($ex.Lib)::app(waterui::env::Environment::new()))
         .expect("example run failed");
 }
 waterui_browser_cef::cef_bootstrap_main!(main);
 "@
         Set-Content (Join-Path $crateDir 'src\main.rs') @"
 fn main() {
-    waterui_winui::run_app($($ex.Lib)::app(waterui::env::Environment::new()))
+    waterui_winui::run_app(|| $($ex.Lib)::app(waterui::env::Environment::new()))
         .expect("example run failed");
 }
 "@
     } else {
         Set-Content (Join-Path $crateDir 'src\main.rs') @"
 fn main() {
-    waterui_winui::run_app($($ex.Lib)::app(waterui::env::Environment::new()))
+    waterui_winui::run_app(|| $($ex.Lib)::app(waterui::env::Environment::new()))
         .expect("example run failed");
 }
 "@
