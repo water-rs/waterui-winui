@@ -271,7 +271,7 @@ fn ensure_activation_context(module: *mut core::ffi::c_void) -> windows_core::Re
             // relative to the assembly directory — the runtime DLLs sit beside
             // the exe.
             lp_assembly_directory: PCWSTR::from_raw(exe_dir.as_ptr()),
-            lp_resource_name: ISOLATIONAWARE_MANIFEST_RESOURCE_ID as *const u16,
+            lp_resource_name: PCWSTR(ISOLATIONAWARE_MANIFEST_RESOURCE_ID as *const u16),
             lp_application_name: PCWSTR::null(),
             h_module: module,
         };
