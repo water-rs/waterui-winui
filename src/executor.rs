@@ -4,9 +4,8 @@
 //! `spawn_local` schedules runnables through `TryEnqueueWithPriority`, which is
 //! the same queue `Application::Start` pumps on the UI thread.
 
-use std::cell::{OnceCell, RefCell};
 use std::future::Future;
-use std::rc::Rc;
+use std::sync::{Arc, Mutex, OnceLock};
 
 use executor_core::{
     LocalExecutor,
@@ -87,8 +86,8 @@ impl LocalExecutor for DispatcherQueueExecutor {
 /// loop is about to pump.
 #[derive(Debug, Clone)]
 pub struct DeferredDispatcherExecutor {
-    queue: Rc<OnceCell<DispatcherQueue>>,
-    pending: Rc<RefCell<Vec<Runnable>>>,
+    queue: Arc<OnceLock<DispatcherQueue>>,
+    pending: Arc<Mutex<Vec<Runnable>>>,
 }
 
 impl Default for DeferredDispatcherExecutor {
@@ -101,8 +100,8 @@ impl DeferredDispatcherExecutor {
     /// Creates a deactivated executor that buffers scheduled runnables.
     pub fn new() -> Self {
         Self {
-            queue: Rc::new(OnceCell::new()),
-            pending: Rc::new(RefCell::new(Vec::new())),
+            queue: Arc::new(OnceLock::new()),
+            pending: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
@@ -114,7 +113,12 @@ impl DeferredDispatcherExecutor {
         self.queue
             .set(queue.clone())
             .expect("DeferredDispatcherExecutor activated twice");
-        for runnable in self.pending.borrow_mut().drain(..) {
+        for runnable in self
+            .pending
+            .lock()
+            .expect("pending schedule buffer poisoned")
+            .drain(..)
+        {
             enqueue_on_ui_thread(&queue, move || {
                 runnable.run();
             });
@@ -138,7 +142,10 @@ impl LocalExecutor for DeferredDispatcherExecutor {
                     runnable.run();
                 });
             } else {
-                pending.borrow_mut().push(runnable);
+                pending
+                    .lock()
+                    .expect("pending schedule buffer poisoned")
+                    .push(runnable);
             }
         });
         runnable.schedule();
