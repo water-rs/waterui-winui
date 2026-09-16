@@ -137,14 +137,12 @@ impl IFrameworkElementOverrides_Impl for LayoutPanel_Impl {
             .iter()
             .map(|sub| sub as &dyn SubView)
             .collect();
-        let measured = measure_layout(
-            &*state.layout,
-            ProposalSize::new(
-                finite_or_none(available_size.width),
-                finite_or_none(available_size.height),
-            ),
-            &children,
+        let proposal = ProposalSize::new(
+            finite_or_none(available_size.width),
+            finite_or_none(available_size.height),
         );
+        state.selected_proposal.set(Some(proposal));
+        let measured = measure_layout(&*state.layout, proposal, &children);
         Ok(Size {
             width: measured.size.width,
             height: measured.size.height,
@@ -170,16 +168,25 @@ impl IFrameworkElementOverrides_Impl for LayoutPanel_Impl {
         for subview in &state.subviews {
             subview.set_arranging(true);
         }
-        let rects = state.layout.place(bounds, &children);
+        // `place` reuses the measurement offer XAML delivered to
+        // `MeasureOverride`; only a panel arranged without a measured state
+        // reconstructs one from the arrange bounds.
+        let proposal = state.selected_proposal.get().unwrap_or_else(|| {
+            ProposalSize::new(
+                finite_or_none(final_size.width),
+                finite_or_none(final_size.height),
+            )
+        });
+        let placements = state.layout.place(bounds, proposal, &children);
         for subview in &state.subviews {
             subview.set_arranging(false);
         }
-        for (subview, rect) in state.subviews.iter().zip(rects.iter()) {
+        for (subview, placement) in state.subviews.iter().zip(placements.iter()) {
             subview.element().Arrange(Rect {
-                x: rect.x(),
-                y: rect.y(),
-                width: rect.width(),
-                height: rect.height(),
+                x: placement.frame.x(),
+                y: placement.frame.y(),
+                width: placement.frame.width(),
+                height: placement.frame.height(),
             })?;
         }
         Ok(*final_size)

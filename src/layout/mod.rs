@@ -1,9 +1,9 @@
 //! `WinUI` hosts for `WaterUI` layout objects.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
-use waterui_core::layout::Layout;
+use waterui_core::layout::{Layout, ProposalSize};
 
 #[allow(clippy::wildcard_imports)] // the generated namespace
 use crate::bindings::*;
@@ -20,6 +20,11 @@ pub(crate) type LayoutState = Rc<RefCell<Option<LayoutPanelState>>>;
 pub(crate) struct LayoutPanelState {
     pub layout: Box<dyn Layout>,
     pub subviews: Vec<WinUiSubView>,
+    /// The proposal the panel was last asked to fit, delivered by
+    /// `MeasureOverride`. `ArrangeOverride` hands it to `Layout::place`
+    /// unchanged, matching the contract that placement reuses the
+    /// measurement offer rather than a proposal rebuilt from the bounds.
+    pub selected_proposal: Cell<Option<ProposalSize>>,
 }
 
 /// Creates a composed `Panel` whose measure/arrange runs `layout`.
@@ -37,7 +42,11 @@ pub(crate) fn layout_panel(
             children.Append(subview.element())?;
         }
     }
-    *state.borrow_mut() = Some(LayoutPanelState { layout, subviews });
+    *state.borrow_mut() = Some(LayoutPanelState {
+        layout,
+        subviews,
+        selected_proposal: Cell::new(None),
+    });
     Ok(panel)
 }
 

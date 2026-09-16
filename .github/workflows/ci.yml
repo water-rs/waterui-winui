@@ -36,7 +36,10 @@ jobs:
       - name: Install DirectX Shader Compiler
         uses: tracel-ai/github-actions/install-dxc@295f2fdbae5271f4f8ad56d634e4ff6a95daafc8
       - run: cargo fmt --check
-      - run: cargo check --locked --workspace --no-default-features
+      # `--no-default-features` applies to every selected workspace member;
+      # the vendored `gpu-allocator` (a member so consumers can git-pin it)
+      # requires its default `std` feature, so it sits this leg out.
+      - run: cargo check --locked --workspace --exclude gpu-allocator --no-default-features
       - run: cargo check --locked --workspace --all-targets
       - run: cargo clippy --locked --workspace --all-targets -- -D warnings
       - uses: taiki-e/install-action@nextest

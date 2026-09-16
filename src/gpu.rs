@@ -130,13 +130,17 @@ pub(crate) fn render_gpu_surface(
         let runtime = runtime.clone();
         let mut env = env.clone();
         renderer.executor().spawn_local(async move {
+            // `context()` returns an owned `Arc`: the runtime may swap in a
+            // rebuilt context after device loss, so each frame of work pins
+            // one generation by holding it in a local.
+            let context = runtime.context();
             let ctx = GpuContext::new(
-                &runtime.context().adapter,
-                &runtime.context().device,
-                &runtime.context().queue,
+                &context.adapter,
+                &context.device,
+                &context.queue,
                 format,
-                &runtime.context().shader_cache,
-                runtime.context().scene_renderer(),
+                &context.shader_cache,
+                context.scene_renderer(),
                 max_samples,
                 redraw_handle,
             );
@@ -319,9 +323,10 @@ fn pump_frame(
         active: state.gesture.borrow().active,
     };
 
+    let context = runtime.context();
     let mut frame = waterui_graphics::gpu_surface::GpuFrame::new(
-        &runtime.context().device,
-        &runtime.context().queue,
+        &context.device,
+        &context.queue,
         &texture.texture,
         view,
         format,
