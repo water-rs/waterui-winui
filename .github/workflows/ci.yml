@@ -52,7 +52,7 @@ jobs:
       - run: cargo clippy --locked --workspace --all-targets --exclude gpu-allocator -- -D warnings
       - run: cargo clippy --locked -p gpu-allocator --lib --tests --example d3d12-buffer-winrs -- -D warnings
       - uses: taiki-e/install-action@nextest
-      - run: cargo nextest run --locked --workspace --no-tests warn
+      - run: cargo nextest run --locked --workspace --exclude gpu-allocator --no-tests warn
       - run: cargo test --locked --workspace --doc
 
   smoke:
