@@ -10,7 +10,7 @@ use crate::app_shim::{create_application, install_xaml_controls_resources};
 #[allow(clippy::wildcard_imports)] // the generated namespace
 use crate::bindings::*;
 use crate::bootstrap::{bootstrap_runtime, initialize_ui_thread};
-use crate::executor::DispatcherQueueExecutor;
+use crate::executor::{DeferredDispatcherExecutor, DispatcherQueueExecutor};
 use crate::renderer::WinUiRenderer;
 use crate::window::open_window;
 
@@ -31,7 +31,12 @@ use crate::window::open_window;
 ///
 /// Panics when called off the process's main thread or when the Windows App
 /// Runtime cannot be initialized.
-pub fn run_app(app: App) -> windows_core::Result<()> {
+///
+/// The application is passed as a factory, not a value: building an `App` may
+/// already spawn executor work (`waterui-browser-cef::install` starts a
+/// message pump task), so the dispatcher-backed local executor must exist on
+/// this thread before `make_app` runs.
+pub fn run_app(make_app: impl FnOnce() -> App) -> windows_core::Result<()> {
     // Diagnostics land on stderr so harnesses capture them; `try_init` never
     // overrides a consumer-installed subscriber.
     let _ = tracing_subscriber::fmt()
@@ -41,11 +46,32 @@ pub fn run_app(app: App) -> windows_core::Result<()> {
     bootstrap_runtime()?;
     initialize_ui_thread()?;
 
-    let (windows, _menu_bar, env) = app.into_parts();
+    // View bodies and install hooks spawn tasks through executor-core's
+    // thread-local and global slots (`.task(...)`, `spawn_local`, `spawn`).
+    // `Application::Start` owns creation of the UI thread's `DispatcherQueue`,
+    // so the local slot gets a `DeferredDispatcherExecutor`: schedules made
+    // while `make_app` runs (e.g. `waterui_browser_cef::install` starting the
+    // CEF message pump) are buffered and flushed onto the dispatcher when the
+    // `Start` callback activates it below.
+    let deferred = DeferredDispatcherExecutor::new();
+    let _ = executor_core::try_init_global_executor(native_executor::NativeExecutor::new());
+    let _ = executor_core::try_init_local_executor(
+        waterui::task::monitored_local_executor_with_probes(
+            deferred.clone(),
+            None::<std::sync::Arc<dyn waterui::task::RuntimeProbe>>,
+        ),
+    );
+
+    let (windows, _menu_bar, env) = make_app().into_parts();
     let windows = RefCell::new(Some(windows));
     let env = RefCell::new(Some(env));
 
     Application::Start(&ApplicationInitializationCallback::new(move |_params| {
+        // The UI thread's `DispatcherQueue` now exists: bind it to the
+        // executor installed before `make_app` and replay buffered schedules.
+        deferred
+            .activate()
+            .expect("UI thread DispatcherQueue missing inside Application::Start");
         let windows = windows
             .borrow_mut()
             .take()
@@ -75,16 +101,6 @@ pub fn run_app(app: App) -> windows_core::Result<()> {
             core::mem::forget(revoker);
 
             let executor = DispatcherQueueExecutor::for_current_thread()?;
-            // View bodies spawn tasks through executor-core's thread-local and
-            // global slots (`.task(...)`, `spawn_local`, `spawn`). Install both
-            // before any window renders, mirroring the GTK backend.
-            let _ = executor_core::try_init_global_executor(native_executor::NativeExecutor::new());
-            let _ = executor_core::try_init_local_executor(
-                waterui::task::monitored_local_executor_with_probes(
-                    executor.clone(),
-                    None::<std::sync::Arc<dyn waterui::task::RuntimeProbe>>,
-                ),
-            );
             waterui_locale::start_system_locale_listener();
             let mut renderer = WinUiRenderer::new(executor.clone());
 

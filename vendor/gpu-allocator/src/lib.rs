@@ -214,9 +214,12 @@
     clippy::std_instead_of_core
 )]
 // Vendored upstream code: only the `windows` version range is patched, so
-// generic lint debt from newer toolchains is upstream's, not this repo's.
-// The named `deny`/`warn` lints above are the crate's own and still apply.
+// generic lint debt from newer toolchains is upstream's, not this repo's —
+// including `unsafe` blocks that newer `metal`/`objc2` bindings made
+// unnecessary. The named `deny`/`warn` lints above are the crate's own and
+// still apply.
 #![allow(clippy::all)]
+#![allow(unused_unsafe)]
 #![cfg_attr(not(feature = "std"), no_std)]
 
 #[macro_use]

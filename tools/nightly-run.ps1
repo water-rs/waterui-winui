@@ -1,12 +1,21 @@
-# Nightly example runner: builds every waterui example against this backend
-# and captures a PNG of each running window. Generates one standalone crate
-# per example under target\nightly so a single example's build or run failure
-# cannot take the others down; crates.io is patched to the checked-out
+# Nightly example runner: packages every waterui example against this backend
+# in release, measures the deployable footprint, then runs the packaged binary
+# to capture a PNG, startup latency, and memory. Generates one standalone
+# crate per example under target\nightly so a single example's build or run
+# failure cannot take the others down; crates.io is patched to the checked-out
 # waterui workspace so the `App` type unifies between examples and backend.
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)] [string] $WateruiPath,
-    [Parameter(Mandatory)] [string] $OutDir
+    [Parameter(Mandatory)] [string] $OutDir,
+    # Restrict the run to one example id (matrix jobs shard by example).
+    [string] $Only,
+    # Emit the discovered example list as JSON and stop — the workflow's
+    # prepare job uses this to build the shard matrix.
+    [switch] $List,
+    # Build configuration; nightly measures the packaged artifact, which is a
+    # release build — a debug run would report performance no user sees.
+    [ValidateSet('debug', 'release')] [string] $Configuration = 'release'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -64,10 +73,34 @@ $examples = foreach ($p in $meta.packages) {
             Write-Host "::warning::skipping $($p.name): no pub fn app entry point"
             continue
         }
-        [pscustomobject]@{ Id = (Split-Path $dir -Leaf); Crate = $p.name; Lib = $lib.name; Dir = $dir }
+        # Examples that link waterui-browser-cef need two things from the
+        # runner crate: the `cef-runtime` feature (the workspace disables
+        # default features, so the sandbox shim is never compiled and the
+        # link fails with LNK2019) and the CEF distribution staged beside the
+        # exe (`CefRuntimePaths::packaged` resolves the exe's directory).
+        $cefDep = $p.dependencies | Where-Object { $_.name -eq 'waterui-browser-cef' } | Select-Object -First 1
+        [pscustomobject]@{
+            Id      = (Split-Path $dir -Leaf)
+            Crate   = $p.name
+            Lib     = $lib.name
+            Dir     = $dir
+            CefDir  = if ($cefDep -and $cefDep.path) { ($cefDep.path -replace '\\', '/') } else { $null }
+        }
     }
 }
 if (-not $examples) { throw "no runnable examples discovered under $examplesRoot" }
+if ($List) {
+    # The prepare job pipes this script's success stream to build the shard
+    # matrix — a bare output expression, since `[Console]::Out` bypasses the
+    # pipeline. The array is forced so a single example still emits `[ "id" ]`,
+    # which `fromJSON` needs for a matrix list.
+    Write-Output (@($examples | ForEach-Object { $_.Id }) | ConvertTo-Json -Compress)
+    exit 0
+}
+if ($Only) {
+    $examples = @($examples | Where-Object { $_.Id -eq $Only })
+    if (-not $examples) { throw "example '$Only' not discovered under $examplesRoot" }
+}
 Write-Host "Discovered $($examples.Count) examples: $($examples.Id -join ', ')"
 
 # windows-reactor-setup stages the self-contained runtime from build scripts,
@@ -149,43 +182,135 @@ function Repair-SelfContainedRuntime([string] $Dest) {
 }
 
 $repoFwd = $repo -replace '\\', '/'
+
+# Emits one result object, persists it as result-<id>.json for the workflow's
+# aggregate job, and returns it for the per-job summary.
+function Emit-Result($ex, [string] $Result, [string] $Title, $PaintedMs, $PeakMB, $PrivateMB, $PackageBytes) {
+    $r = [pscustomobject]@{
+        Example      = $ex.Id
+        Result       = $Result
+        Title        = $Title
+        PaintedMs    = $PaintedMs
+        PeakMB       = $PeakMB
+        PrivateMB    = $PrivateMB
+        PackageBytes = $PackageBytes
+    }
+    $r | ConvertTo-Json | Set-Content (Join-Path $OutDir "result-$($ex.Id).json")
+    return $r
+}
+
 $results = foreach ($ex in $examples) {
     Write-Host "::group::$($ex.Id)"
+    $packageBytes = $null
     $prefix = Join-Path $OutDir $ex.Id
     $crateDir = Join-Path $genRoot $ex.Id
     New-Item -ItemType Directory -Force -Path (Join-Path $crateDir 'src') | Out-Null
 
-    Set-Content (Join-Path $crateDir 'src\main.rs') @"
+    if ($ex.CefDir) {
+        # A Windows CEF application is a DLL: the distribution's
+        # `bootstrapc.exe`/`bootstrap.exe` launcher is renamed to the app name,
+        # creates the OS-sandbox object, and hands it to the DLL's
+        # `RunWinMain`/`RunConsoleMain` export. `bootstrapc` keeps the console
+        # the harness captures. CEF subprocesses re-enter through the same
+        # pair — `--type` marks those launches and must reach
+        # `cef_execute_process` before any WinUI work.
+        #
+        # The package also keeps a bin target: `cargo:rustc-link-arg-bins`
+        # (emitted by `as_self_contained`) is rejected for a package with no
+        # bins, and the bin doubles as a runnable unsandboxed entry.
+        Set-Content (Join-Path $crateDir 'src\lib.rs') @"
 fn main() {
-    waterui_winui::run_app($($ex.Lib)::app(waterui::env::Environment::new()))
+    if std::env::args_os()
+        .any(|arg| arg == "--type" || arg.to_string_lossy().starts_with("--type="))
+    {
+        std::process::exit(waterui_browser_cef::run_packaged_subprocess());
+    }
+    waterui_winui::run_app(|| $($ex.Lib)::app(waterui::env::Environment::new()))
+        .expect("example run failed");
+}
+waterui_browser_cef::cef_bootstrap_main!(main);
+"@
+        Set-Content (Join-Path $crateDir 'src\main.rs') @"
+fn main() {
+    waterui_winui::run_app(|| $($ex.Lib)::app(waterui::env::Environment::new()))
         .expect("example run failed");
 }
 "@
+    } else {
+        Set-Content (Join-Path $crateDir 'src\main.rs') @"
+fn main() {
+    waterui_winui::run_app(|| $($ex.Lib)::app(waterui::env::Environment::new()))
+        .expect("example run failed");
+}
+"@
+    }
 
     # cargo:rustc-link-arg-bins only applies to the package whose build script
     # emits it, so the self-contained manifest must be embedded by the runner
-    # crate's own build script — not by waterui-winui's.
-    Set-Content (Join-Path $crateDir 'build.rs') @'
+    # crate's own build script — not by waterui-winui's. CEF runners are
+    # cdylibs (the exe is the prebuilt launcher): the marker manifest embeds
+    # into the DLL via rustc-link-arg-cdylib instead.
+    $cdylibManifestArgs = if ($ex.CefDir) {
+        @'
+
+        // rustc-link-arg-bins does not apply to a cdylib, so re-emit the
+        // manifest as_self_contained just wrote with the cdylib link-arg kind.
+        let manifest = std::path::PathBuf::from(std::env::var("OUT_DIR").unwrap())
+            .join("app.manifest");
+        let target_env = std::env::var("CARGO_CFG_TARGET_ENV").unwrap_or_default();
+        let target_abi = std::env::var("CARGO_CFG_TARGET_ABI").unwrap_or_default();
+        match (target_env.as_str(), target_abi.as_str()) {
+            ("msvc", _) => {
+                println!("cargo:rustc-link-arg-cdylib=/MANIFEST:EMBED");
+                println!("cargo:rustc-link-arg-cdylib=/MANIFESTINPUT:{}", manifest.display());
+                // rustc passes /DEBUG unconditionally, so a PDB is written even
+                // with debug=0 — and writing one for a DLL importing all of
+                // libcef.lib kills mspdbsrv with LNK1201. The capture harness
+                // needs no symbols; skip the PDB entirely.
+                println!("cargo:rustc-link-arg-cdylib=/DEBUG:NONE");
+                println!("cargo:rustc-link-arg-bins=/DEBUG:NONE");
+            }
+            ("gnu", "llvm") => {
+                println!("cargo:rustc-link-arg-cdylib=-Wl,/MANIFEST:EMBED");
+                println!("cargo:rustc-link-arg-cdylib=-Wl,/MANIFESTINPUT:{}", manifest.display());
+            }
+            _ => panic!("unsupported target environment: {target_env}{target_abi}"),
+        }
+'@
+    } else { '' }
+    Set-Content (Join-Path $crateDir 'build.rs') @"
 fn main() {
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
-        windows_reactor_setup::as_self_contained();
+        windows_reactor_setup::as_self_contained();$cdylibManifestArgs
     }
 }
-'@
+"@
 
     $exFwd = $ex.Dir -replace '\\', '/'
+    # Declaring waterui-browser-cef here unifies its features with the
+    # example's dep: `cef-runtime` selects the real engine (without it the
+    # crate's externs stay undefined and the link fails) and exports the
+    # `cef_bootstrap_main!` entry points the cdylib needs.
+    $cefDepLine = if ($ex.CefDir) {
+        "waterui-browser-cef = { path = `"$($ex.CefDir)`", features = [`"cef-runtime`"] }"
+    } else { '' }
+    $libSection = if ($ex.CefDir) {
+        $libName = "runner_$($ex.Id -replace '-', '_')"
+        "`n[lib]`nname = `"$libName`"`ncrate-type = [`"cdylib`"]"
+    } else { '' }
     Set-Content (Join-Path $crateDir 'Cargo.toml') @"
 [package]
 name = "runner-$($ex.Id)"
 version = "0.0.0"
 edition = "2024"
-
+$libSection
 [workspace]
 
 [dependencies]
 waterui-winui = { path = "$repoFwd", features = ["self-contained"] }
 waterui = "=$pinned"
 $($ex.Crate) = { path = "$exFwd" }
+$cefDepLine
 
 [build-dependencies]
 windows-reactor-setup = "$reactorSetup"
@@ -195,11 +320,23 @@ $patchSection
 "@
 
     $buildLog = "$prefix.build.log"
-    cargo build --manifest-path (Join-Path $crateDir 'Cargo.toml') *> $buildLog
-    $exe = Join-Path $env:CARGO_TARGET_DIR "debug\runner-$($ex.Id).exe"
-    if ($LASTEXITCODE -ne 0 -or -not (Test-Path $exe)) {
+    $buildArgs = @('build', '--manifest-path', (Join-Path $crateDir 'Cargo.toml'))
+    if ($Configuration -eq 'release') { $buildArgs += '--release' }
+    cargo @buildArgs *> $buildLog
+    $profileDir = Join-Path $env:CARGO_TARGET_DIR $Configuration
+    if ($ex.CefDir) {
+        # The build product is the application DLL; the exe is assembled from
+        # `bootstrapc.exe` during CEF staging below.
+        $runnerName = "runner_$($ex.Id -replace '-', '_')"
+        $built = Test-Path (Join-Path $profileDir "$runnerName.dll")
+        $exe = Join-Path $profileDir "$runnerName.exe"
+    } else {
+        $exe = Join-Path $profileDir "runner-$($ex.Id).exe"
+        $built = Test-Path $exe
+    }
+    if ($LASTEXITCODE -ne 0 -or -not $built) {
         Write-Host "::warning::$($ex.Id): build failed, see $buildLog"
-        [pscustomobject]@{ Example = $ex.Id; Result = 'build failed'; Title = '' }
+        Emit-Result $ex 'build failed' '' $null $null $null $null
         Write-Host "::endgroup::"
         continue
     }
@@ -209,7 +346,7 @@ $patchSection
     # When the staged DLL is absent, capture the build-script stdout and the
     # staging cache listing so the crate's silent println! diagnostics are
     # visible in the artifact, then repair from the same cache.
-    $runtimeDir = Join-Path $env:CARGO_TARGET_DIR 'debug'
+    $runtimeDir = $profileDir
     if (-not (Test-Path (Join-Path $runtimeDir 'Microsoft.WindowsAppRuntime.dll'))) {
         Get-ChildItem (Join-Path $runtimeDir 'build') -Directory -ErrorAction SilentlyContinue |
             Where-Object { $_.Name -like 'runner-*' -or $_.Name -like 'waterui-winui-*' } |
@@ -228,17 +365,105 @@ $patchSection
         catch { Write-Host "::warning::$($ex.Id): runtime repair failed: $_" }
         if (-not $repaired) {
             Write-Host "::warning::$($ex.Id): self-contained runtime not staged beside exe"
-            [pscustomobject]@{ Example = $ex.Id; Result = 'run failed: self-contained runtime not staged beside exe'; Title = '' }
+            Emit-Result $ex 'run failed: self-contained runtime not staged beside exe' '' $null $null $null $null
             Write-Host "::endgroup::"
             continue
         }
         Write-Host "$($ex.Id): repaired self-contained runtime beside exe"
     }
 
+    $runnerMeta = cargo metadata --locked --format-version 1 --manifest-path (Join-Path $crateDir 'Cargo.toml') | ConvertFrom-Json
+
+    # `CefRuntimePaths::packaged` resolves the exe's own directory as the CEF
+    # runtime root: `cef-dll-sys` downloads the distribution into its build
+    # output, so stage it beside the runner before launch.
+    if ($ex.CefDir) {
+        $exeDir = Split-Path $exe -Parent
+        $cefRoot = Get-ChildItem (Join-Path $profileDir 'build\cef-dll-sys-*\out\cef_windows_*') -Directory -ErrorAction SilentlyContinue |
+            Where-Object { Test-Path (Join-Path $_.FullName 'libcef.dll') } |
+            Select-Object -First 1
+        if (-not $cefRoot) {
+            Write-Host "::warning::$($ex.Id): CEF distribution missing from cef-dll-sys build output"
+            Emit-Result $ex 'run failed: CEF distribution not found in cef-dll-sys output' '' $null $null $null $null
+            Write-Host "::endgroup::"
+            continue
+        }
+        if (-not (Test-Path (Join-Path $exeDir 'libcef.dll'))) {
+            Copy-Item (Join-Path $cefRoot.FullName '*') $exeDir -Recurse -Force
+        }
+        # The application executable is the console-subsystem launcher renamed
+        # to the DLL's basename: it creates the sandbox object, loads
+        # `runner_<id>.dll`, and calls `RunConsoleMain`. `bootstrap.exe` is the
+        # GUI-subsystem variant and would detach the console the harness
+        # captures.
+        Copy-Item (Join-Path $exeDir 'bootstrapc.exe') $exe -Force
+
+        # The launcher's documented layout keeps the application manifest
+        # beside the exe; bootstrapc.exe already embeds the same one, so this
+        # sidecar is inert but conventional. Self-contained WinRT activation is
+        # instead handled at runtime: waterui-winui re-activates the manifest
+        # embedded in the runner DLL via CreateActCtxW (the process context is
+        # fixed at launch from the exe and cannot be amended).
+        $cefPkg = $runnerMeta.packages | Where-Object { $_.name -eq 'cef' } | Select-Object -First 1
+        if (-not $cefPkg) { throw "cef package missing from the $($ex.Id) runner graph" }
+        Copy-Item (Join-Path (Split-Path $cefPkg.manifest_path -Parent) 'src\build_util\win\cef-app.exe.manifest') "$exe.manifest" -Force
+
+        # `CefRuntimePaths::validate` requires the runtime manifest
+        # `water package` writes; author the same identity from the resolved
+        # `cef-dll-sys` version (`<crate>+<cef version>`).
+        $cefSysPkg = $runnerMeta.packages | Where-Object { $_.name -eq 'cef-dll-sys' } | Select-Object -First 1
+        $cefVersion = ($cefSysPkg.version -split '\+')[-1]
+        $cefArch = switch ($env:PROCESSOR_ARCHITECTURE) {
+            'AMD64' { 'x86_64' } 'ARM64' { 'arm64' } 'X86' { 'x86' }
+            default { throw "unsupported arch: $env:PROCESSOR_ARCHITECTURE" }
+        }
+        $cefManifestDir = Join-Path $exeDir 'waterui-browser\cef'
+        New-Item -ItemType Directory -Force -Path $cefManifestDir | Out-Null
+        [ordered]@{
+            engine       = 'cef'
+            version      = $cefVersion
+            platform     = 'windows'
+            architecture = $cefArch
+        } | ConvertTo-Json -Compress | Set-Content (Join-Path $cefManifestDir 'runtime.json')
+    }
+
+    # Deployable footprint: the executable (plus the app DLL for CEF) and
+    # exactly what staging placed beside it — the self-contained runtime
+    # allowlist from windows-reactor-setup's runtime.txt, the WebView2
+    # projection, and for CEF the whole staged distribution.
+    $exeDir = Split-Path $exe -Parent
+    $packageBytes = [long](Get-Item $exe).Length
+    if ($ex.CefDir) { $packageBytes += [long](Get-Item "$exeDir\$runnerName.dll").Length }
+    $setupPkg = $runnerMeta.packages | Where-Object { $_.name -eq 'windows-reactor-setup' } | Select-Object -First 1
+    if (-not $setupPkg) { throw 'windows-reactor-setup absent from runner dependency graph' }
+    $stagedNames = Get-Content (Join-Path (Split-Path $setupPkg.manifest_path -Parent) 'assets\runtime.txt') |
+        ForEach-Object { $_.Trim() } | Where-Object { $_ }
+    $packagePaths = @($stagedNames) + 'Microsoft.Web.WebView2.Core.dll'
+    if ($ex.CefDir) {
+        # Every top-level entry the CEF staging copied out of the dist, plus
+        # the launcher manifest and generated runtime identity.
+        $packagePaths += Get-ChildItem $cefRoot.FullName | ForEach-Object { $_.Name }
+        $packagePaths += (Split-Path "$exe.manifest" -Leaf), 'waterui-browser'
+    }
+    foreach ($name in $packagePaths) {
+        $item = Join-Path $exeDir $name
+        if (Test-Path $item) {
+            $packageBytes += [long]((Get-ChildItem $item -Recurse -File |
+                Measure-Object Length -Sum).Sum)
+        }
+    }
+
     try {
+        $captureArgs = @{}
+        if ($ex.CefDir) {
+            # CEF reads switches off the process command line — through
+            # bootstrapc.exe — so Chromium diagnostics land on stderr, where
+            # the harness already captures them.
+            $captureArgs.Arguments = @('--enable-logging=stderr', '--v=0')
+        }
         $r = & "$PSScriptRoot\capture-window.ps1" -Exe $exe -OutPrefix $prefix `
             -StdoutLog "$prefix.stdout.log" -StderrLog "$prefix.stderr.log" `
-            -WindowTimeoutSec 45 -PaintTimeoutSec 45
+            -WindowTimeoutSec 45 -PaintTimeoutSec 45 @captureArgs
         $status = if ($r.Painted) { 'painted' } else { 'window shown, uniform pixels' }
         if (-not $r.Painted) {
             Write-Host "::warning::$($ex.Id): no painted content detected"
@@ -247,17 +472,22 @@ $patchSection
                 $status = "$status ($($r.Diagnostics -replace '\s+', ' ' -replace '\|', '/'))"
             }
         }
-        [pscustomobject]@{ Example = $ex.Id; Result = $status; Title = $r.Title }
+        Emit-Result $ex $status $r.Title $r.PaintedMs $r.PeakWorkingSetMB $r.PrivateBytesMB $packageBytes
     } catch {
         $msg = "$_" -replace '\s+', ' ' -replace '\|', '/'
         Write-Host "::warning::$($ex.Id): $msg"
-        [pscustomobject]@{ Example = $ex.Id; Result = "run failed: $msg"; Title = '' }
+        Emit-Result $ex "run failed: $msg" '' $null $null $null $packageBytes
     }
     Write-Host "::endgroup::"
 }
 
-$lines = @('| Example | Result | Window title |', '|---|---|---|')
-foreach ($r in $results) { $lines += "| $($r.Example) | $($r.Result) | $($r.Title) |" }
+$lines = @('| Example | Result | Package | Window title | First paint | Peak WS |', '|---|---|---|---|---|---|')
+foreach ($r in $results) {
+    $package = if ($null -ne $r.PackageBytes) { "$('{0:N1}' -f ($r.PackageBytes / 1MB)) MB" } else { '' }
+    $startup = if ($null -ne $r.PaintedMs) { "$($r.PaintedMs) ms" } else { '' }
+    $peak = if ($null -ne $r.PeakMB) { "$($r.PeakMB) MB" } else { '' }
+    $lines += "| $($r.Example) | $($r.Result) | $package | $($r.Title) | $startup | $peak |"
+}
 Set-Content (Join-Path $OutDir 'summary.md') ($lines -join "`n")
 if ($env:GITHUB_STEP_SUMMARY) {
     Add-Content $env:GITHUB_STEP_SUMMARY ("## Nightly example screenshots`n`n" + ($lines -join "`n"))

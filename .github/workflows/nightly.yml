@@ -4,39 +4,142 @@ on:
   schedule:
     - cron: '0 2 * * *'
   workflow_dispatch:
+    inputs:
+      example:
+        description: Run only this example id (empty = all)
+        required: false
+        type: string
+        default: ''
 
 jobs:
-  examples:
-    name: windows-latest (examples)
+  # Discovers the example set once so the examples job can shard one example
+  # per runner — the fleet allows ~60 concurrent windows-latest jobs — and
+  # warms the release target they all build into (#49). It is the single
+  # writer of the `nightly` cache: the example jobs restore it read-only
+  # and compile only their own crate, instead of each performing the cold
+  # full build of the framework and backend (10–23 min a job, 36 jobs).
+  prepare:
     runs-on: windows-latest
-    timeout-minutes: 120
+    timeout-minutes: 60
+    outputs:
+      examples: ${{ steps.list.outputs.examples }}
+      ref: ${{ steps.pin.outputs.ref }}
     steps:
       - uses: actions/checkout@v4
         with:
           path: waterui-winui
-      - name: Resolve pinned waterui tag
+      - name: Resolve pinned waterui ref
         id: pin
         run: |
           $manifest = Get-Content waterui-winui\Cargo.toml -Raw
           if ($manifest -notmatch 'waterui\s*=\s*\{[^}]*version\s*=\s*"=([0-9.]+)"') {
             throw 'cannot find the waterui version pin in Cargo.toml'
           }
-          "tag=v$($Matches[1])" >> $env:GITHUB_OUTPUT
+          # The pinned minor's backport branch (`release/v<major>.<minor>.x`)
+          # carries the release line plus backported fixes the nightly needs —
+          # e.g. the CEF bootstrap entry point that v0.3.0 predates.
+          $parts = $Matches[1] -split '\.'
+          "ref=release/v$($parts[0]).$($parts[1]).x" >> $env:GITHUB_OUTPUT
       - uses: actions/checkout@v4
         with:
           repository: water-rs/waterui
-          ref: ${{ steps.pin.outputs.tag }}
+          ref: ${{ steps.pin.outputs.ref }}
           path: waterui
           submodules: recursive
       - uses: dtolnay/rust-toolchain@stable
+      - name: Discover examples
+        id: list
+        run: |
+          $json = waterui-winui\tools\nightly-run.ps1 -WateruiPath .\waterui -OutDir .\prepare-out -List |
+            Select-Object -Last 1
+          $ids = @($json | ConvertFrom-Json)
+          $only = '${{ inputs.example }}'
+          if ($only) {
+            $ids = @($ids | Where-Object { $_ -eq $only })
+            if (-not $ids) { throw "no example matches '$only'" }
+            # Unary comma keeps a single id wrapped in an array — a bare
+            # JSON string would break fromJSON in the examples matrix.
+            $json = ,$ids | ConvertTo-Json -Compress
+          }
+          "examples=$json" >> $env:GITHUB_OUTPUT
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: nightly
+          # The runner script builds under this directory, not `target/`.
+          workspaces: |
+            waterui-winui -> target/nightly/target
       - name: Install DirectX Shader Compiler
         uses: tracel-ai/github-actions/install-dxc@295f2fdbae5271f4f8ad56d634e4ff6a95daafc8
-      - name: Run all examples and screenshot
-        run: waterui-winui\tools\nightly-run.ps1 -WateruiPath .\waterui -OutDir .\nightly-artifacts
-        timeout-minutes: 110
+      # The gallery reaches the most of the framework, so packaging it leaves
+      # the cache carrying the shared dependency graph in release profile.
+      - name: Warm the shared release target
+        env:
+          CARGO_INCREMENTAL: 0
+        run: waterui-winui\tools\nightly-run.ps1 -WateruiPath .\waterui -OutDir .\prepare-out -Only gallery
+
+  # One example per job: produce the release package, measure its size, then
+  # run the packaged binary for memory, first paint, and a screenshot.
+  examples:
+    needs: prepare
+    runs-on: windows-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        example: ${{ fromJSON(needs.prepare.outputs.examples) }}
+    env:
+      CARGO_INCREMENTAL: 0
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: waterui-winui
+      - uses: actions/checkout@v4
+        with:
+          repository: water-rs/waterui
+          ref: ${{ needs.prepare.outputs.ref }}
+          path: waterui
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          # All matrix jobs share the cache `prepare` wrote — the base dep
+          # graph is identical — and none of them saves it: thirty-six jobs
+          # racing for one key would leave the reservation to whichever lost.
+          shared-key: nightly
+          save-if: false
+          workspaces: |
+            waterui-winui -> target/nightly/target
+      - name: Install DirectX Shader Compiler
+        uses: tracel-ai/github-actions/install-dxc@295f2fdbae5271f4f8ad56d634e4ff6a95daafc8
+      - name: Package and run ${{ matrix.example }}
+        run: waterui-winui\tools\nightly-run.ps1 -WateruiPath .\waterui -OutDir .\nightly-artifacts -Only ${{ matrix.example }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: example-${{ matrix.example }}
+          path: nightly-artifacts
+
+  summarize:
+    needs: [prepare, examples]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: waterui-winui
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: example-*
+          path: artifacts
+          merge-multiple: true
+      - name: Merge results
+        shell: pwsh
+        run: waterui-winui/tools/nightly-merge.ps1 -ArtifactsDir artifacts -OutDir merged
+      - name: Publish summary
+        run: cat merged/summary.md >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: example-screenshots
-          path: nightly-artifacts
-          if-no-files-found: error
+          path: merged

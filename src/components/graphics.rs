@@ -207,26 +207,77 @@ impl WinUiComponent for Native<ResolvedShape> {
 /// `WaterUI` path coordinates are normalized to the shape's bounds (0.0–1.0);
 /// the `Path` is stretched to `Fill`, so the geometry is emitted in the unit
 /// square and XAML scales it to the arranged size.
+///
+/// The translation mirrors the Direct2D clip recorder in [`crate::d2d`]: each
+/// `MoveTo` ends the current figure and opens a new one, segment commands
+/// with no open figure implicitly start one at the origin, and
+/// center-parametrized `Arc` commands become endpoint-parametrized
+/// `ArcSegment`s — an open figure gets a connector line to the arc's
+/// parametric start (the `CGPath` behavior the Apple backend follows), while
+/// a sweep of a full turn or more is emitted as two semicircle arcs since an
+/// endpoint arc cannot express a complete ellipse.
+#[allow(clippy::too_many_lines)] // one branch per `PathCommand`
 fn build_path_geometry(shape: &ResolvedShape) -> PathGeometry {
     let geometry = PathGeometry::new().expect("PathGeometry::new");
-    let figure = PathFigure::new().expect("PathFigure::new");
+    let figures =
+        crate::util::vector::<_, PathFigure>(&geometry.Figures().expect("PathGeometry::Figures"));
 
-    let mut segments = Vec::new();
+    let mut figure = PathFigure::new().expect("PathFigure::new");
+    let mut segments =
+        crate::util::vector::<_, PathSegment>(&figure.Segments().expect("PathFigure::Segments"));
+    let mut figure_open = false;
+    let mut figure_start = Point { x: 0.0, y: 0.0 };
+    let mut current = Point { x: 0.0, y: 0.0 };
+
+    macro_rules! ensure_figure {
+        () => {
+            if !figure_open {
+                figure
+                    .SetStartPoint(current)
+                    .expect("PathFigure::SetStartPoint");
+                figure_start = current;
+                figure_open = true;
+            }
+        };
+    }
+    macro_rules! push_segment {
+        ($segment:expr) => {
+            segments
+                .Append(&$segment.cast::<PathSegment>().expect("PathSegment"))
+                .expect("PathSegmentCollection::Append")
+        };
+    }
+
     for command in &shape.commands {
         match *command {
             PathCommand::MoveTo { x, y } => {
+                if figure_open {
+                    figures
+                        .Append(&figure)
+                        .expect("PathFigureCollection::Append");
+                    figure = PathFigure::new().expect("PathFigure::new");
+                    segments = crate::util::vector::<_, PathSegment>(
+                        &figure.Segments().expect("PathFigure::Segments"),
+                    );
+                }
                 figure
                     .SetStartPoint(Point { x, y })
                     .expect("PathFigure::SetStartPoint");
+                figure_start = Point { x, y };
+                current = Point { x, y };
+                figure_open = true;
             }
             PathCommand::LineTo { x, y } => {
+                ensure_figure!();
                 let segment = LineSegment::new().expect("LineSegment::new");
                 segment
                     .SetPoint(Point { x, y })
                     .expect("LineSegment::SetPoint");
-                segments.push(segment.cast::<PathSegment>().expect("PathSegment"));
+                push_segment!(segment);
+                current = Point { x, y };
             }
             PathCommand::QuadTo { cx, cy, x, y } => {
+                ensure_figure!();
                 let segment = QuadraticBezierSegment::new().expect("QuadraticBezierSegment::new");
                 segment
                     .SetPoint1(Point { x: cx, y: cy })
@@ -234,7 +285,8 @@ fn build_path_geometry(shape: &ResolvedShape) -> PathGeometry {
                 segment
                     .SetPoint2(Point { x, y })
                     .expect("QuadraticBezierSegment::SetPoint2");
-                segments.push(segment.cast::<PathSegment>().expect("PathSegment"));
+                push_segment!(segment);
+                current = Point { x, y };
             }
             PathCommand::CubicTo {
                 c1x,
@@ -244,6 +296,7 @@ fn build_path_geometry(shape: &ResolvedShape) -> PathGeometry {
                 x,
                 y,
             } => {
+                ensure_figure!();
                 let segment = BezierSegment::new().expect("BezierSegment::new");
                 segment
                     .SetPoint1(Point { x: c1x, y: c1y })
@@ -254,7 +307,8 @@ fn build_path_geometry(shape: &ResolvedShape) -> PathGeometry {
                 segment
                     .SetPoint3(Point { x, y })
                     .expect("BezierSegment::SetPoint3");
-                segments.push(segment.cast::<PathSegment>().expect("PathSegment"));
+                push_segment!(segment);
+                current = Point { x, y };
             }
             PathCommand::Arc {
                 cx,
@@ -264,47 +318,72 @@ fn build_path_geometry(shape: &ResolvedShape) -> PathGeometry {
                 start,
                 sweep,
             } => {
-                let segment = ArcSegment::new().expect("ArcSegment::new");
-                segment
-                    .SetPoint(Point {
-                        x: cx + rx * (start + sweep).cos(),
-                        y: cy + ry * (start + sweep).sin(),
-                    })
-                    .expect("ArcSegment::SetPoint");
-                segment
-                    .SetSize(Size {
-                        width: rx,
-                        height: ry,
-                    })
-                    .expect("ArcSegment::SetSize");
-                segment
-                    .SetIsLargeArc(sweep.abs() > core::f32::consts::PI)
-                    .expect("ArcSegment::SetIsLargeArc");
-                segment
-                    .SetSweepDirection(if sweep >= 0.0 {
-                        SweepDirection::Clockwise
-                    } else {
-                        SweepDirection::Counterclockwise
-                    })
-                    .expect("ArcSegment::SetSweepDirection");
-                segments.push(segment.cast::<PathSegment>().expect("PathSegment"));
+                let at = |angle: f32| Point {
+                    x: cx + rx * angle.cos(),
+                    y: cy + ry * angle.sin(),
+                };
+                let arc_start = at(start);
+                if figure_open {
+                    if current != arc_start {
+                        let connector = LineSegment::new().expect("LineSegment::new");
+                        connector
+                            .SetPoint(arc_start)
+                            .expect("LineSegment::SetPoint");
+                        push_segment!(connector);
+                    }
+                } else {
+                    figure
+                        .SetStartPoint(arc_start)
+                        .expect("PathFigure::SetStartPoint");
+                    figure_start = arc_start;
+                    figure_open = true;
+                }
+                let direction = if sweep >= 0.0 {
+                    SweepDirection::Clockwise
+                } else {
+                    SweepDirection::Counterclockwise
+                };
+                let push_arc = |end: Point, is_large: bool| {
+                    let segment = ArcSegment::new().expect("ArcSegment::new");
+                    segment.SetPoint(end).expect("ArcSegment::SetPoint");
+                    segment
+                        .SetSize(Size {
+                            width: rx,
+                            height: ry,
+                        })
+                        .expect("ArcSegment::SetSize");
+                    segment
+                        .SetIsLargeArc(is_large)
+                        .expect("ArcSegment::SetIsLargeArc");
+                    segment
+                        .SetSweepDirection(direction)
+                        .expect("ArcSegment::SetSweepDirection");
+                    push_segment!(segment);
+                };
+                if sweep.abs() >= 2.0 * core::f32::consts::PI {
+                    push_arc(at(start + core::f32::consts::PI), false);
+                    push_arc(arc_start, false);
+                    figure.SetIsClosed(true).expect("PathFigure::SetIsClosed");
+                    current = arc_start;
+                } else {
+                    let end = at(start + sweep);
+                    push_arc(end, sweep.abs() > core::f32::consts::PI);
+                    current = end;
+                }
             }
             PathCommand::Close => {
-                figure.SetIsClosed(true).expect("PathFigure::SetIsClosed");
+                if figure_open {
+                    figure.SetIsClosed(true).expect("PathFigure::SetIsClosed");
+                    current = figure_start;
+                }
             }
         }
     }
-
-    let segment_collection =
-        crate::util::vector::<_, PathSegment>(&figure.Segments().expect("PathFigure::Segments"));
-    for segment in segments {
-        segment_collection
-            .Append(&segment)
-            .expect("PathSegmentCollection::Append");
+    if figure_open {
+        figures
+            .Append(&figure)
+            .expect("PathFigureCollection::Append");
     }
-    crate::util::vector::<_, PathFigure>(&geometry.Figures().expect("PathGeometry::Figures"))
-        .Append(&figure)
-        .expect("PathFigureCollection::Append");
     geometry
 }
 

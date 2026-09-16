@@ -162,6 +162,18 @@ Windows::Win32::SW_SHOWNORMAL
 Windows::Win32::TryCreatePackageDependency
 extras::ISwapChainPanelNative::SetSwapChain
 extras::IWindowNative::get_WindowHandle
+extras::D2D1CreateFactory
+extras::ID2D1Factory::CreatePathGeometry
+extras::ID2D1PathGeometry::Open
+extras::ID2D1SimplifiedGeometrySink::{BeginFigure, EndFigure, Close}
+extras::ID2D1GeometrySink::{AddLine, AddBezier, AddQuadraticBezier, AddArc}
+extras::IGeometrySource2DInterop::{}
+extras::D2D1_FACTORY_TYPE::D2D1_FACTORY_TYPE_SINGLE_THREADED
+extras::D2D1_FIGURE_BEGIN::D2D1_FIGURE_BEGIN_FILLED
+extras::D2D1_FIGURE_END::{D2D1_FIGURE_END_OPEN, D2D1_FIGURE_END_CLOSED}
+extras::D2D1_SWEEP_DIRECTION::{D2D1_SWEEP_DIRECTION_CLOCKWISE, D2D1_SWEEP_DIRECTION_COUNTER_CLOCKWISE}
+extras::D2D1_ARC_SIZE::{D2D1_ARC_SIZE_SMALL, D2D1_ARC_SIZE_LARGE}
+Windows::Graphics::IGeometrySource2D::{}
 extras::WINDOWSAPPSDK_RUNTIME_VERSION_UINT64
 extras::WINDOWSAPPSDK_RUNTIME_VERSION_MAJOR
 extras::WINDOWSAPPSDK_RUNTIME_VERSION_MINOR
@@ -196,7 +208,10 @@ Microsoft::UI::Xaml::IUIElement::{put_Shadow, get_Shadow, get_Translation, get_R
 Microsoft::UI::Composition::ICompositor::{CreateScalarKeyFrameAnimation, CreateVector3KeyFrameAnimation, CreateCubicBezierEasingFunction, CreateLinearEasingFunction, CreateExpressionAnimation, CreateScopedBatch, CreatePropertySet, CreateSpriteVisual, CreateColorBrush, CreateInsetClip, CreateContainerVisual, CreateColorKeyFrameAnimation}
 Microsoft::UI::Composition::ICompositor2::{CreateDropShadow, CreateBackdropBrush, CreateAnimationGroup, CreateImplicitAnimationCollection, CreateMaskBrush, CreateLayerVisual}
 Microsoft::UI::Composition::ICompositor4::{CreateColorGradientStop, CreateLinearGradientBrush, CreateSpringScalarAnimation, CreateSpringVector3Animation}
-Microsoft::UI::Composition::ICompositor5::{CreateEllipseGeometry, CreateRoundedRectangleGeometry, CreateRectangleGeometry, CreateViewBox, CreateShapeVisual}
+Microsoft::UI::Composition::ICompositor5::{CreateEllipseGeometry, CreateRoundedRectangleGeometry, CreateRectangleGeometry, CreatePathGeometry, CreatePathGeometryWithPath, CreateViewBox, CreateShapeVisual}
+Microsoft::UI::Composition::CompositionPath::Create
+Microsoft::UI::Composition::ICompositionViewBox::{put_Size, put_Stretch}
+Microsoft::UI::Composition::CompositionStretch::{None, Fill, Uniform, UniformToFill}
 Microsoft::UI::Composition::ICompositor6::{CreateGeometricClip, CreateRedirectVisual}
 Microsoft::UI::Composition::ICompositionObject::{get_Compositor, get_Properties, StartAnimation, StopAnimation}
 Microsoft::UI::Composition::ICompositionObject2::{get_ImplicitAnimations, put_ImplicitAnimations, StartAnimationGroup, StopAnimationGroup}
@@ -275,3 +290,77 @@ Microsoft::UI::Xaml::SetterBase
 Microsoft::UI::Xaml::SetterBaseCollection::{}
 Microsoft::UI::Xaml::ISetter::{get_Property, get_Value}
 Microsoft::UI::Xaml::Documents::TextElement::{FontSizeProperty, FontWeightProperty}
+Microsoft::UI::Xaml::Controls::IMediaPlayerElement::{put_AreTransportControlsEnabled, put_Stretch, put_AutoPlay, SetMediaPlayer, get_TransportControls}
+Microsoft::UI::Xaml::Controls::IMediaTransportControls::{put_IsNextTrackButtonVisible, put_IsPreviousTrackButtonVisible}
+Microsoft::UI::Xaml::Controls::MediaPlayerElement::CreateInstance
+Microsoft::UI::Xaml::Media::Stretch
+Windows::Foundation::Uri
+Windows::Foundation::Uri::CreateUri
+Windows::Media::Core::AudioTrack
+Windows::Media::Core::VideoTrack
+Windows::Media::Core::TimedMetadataTrack
+Windows::Media::Core::IMediaTrack::{get_Id, get_Label, get_Language, get_TrackKind}
+Windows::Media::Core::ITimedMetadataTrack::{get_TimedMetadataKind, get_DispatchType, add_CueEntered, remove_CueEntered}
+Windows::Media::Core::TimedMetadataKind
+Windows::Media::Core::MediaTrackKind
+Windows::Media::Core::MediaCueEventArgs
+Windows::Media::Core::IMediaCueEventArgs::get_Cue
+Windows::Media::Core::IMediaCue::{get_StartTime, get_Duration, get_Id}
+Windows::Media::Core::IDataCue::get_Data
+Windows::Media::Core::DataCue
+Windows::Media::Core::ISingleSelectMediaTrackList::{get_SelectedIndex, put_SelectedIndex}
+Windows::Media::Core::MediaSource
+Windows::Media::Core::IMediaSource2::get_ExternalTimedTextSources
+Windows::Media::Core::MediaSource::CreateFromUri
+Windows::Media::Core::MediaSource::CreateFromAdaptiveMediaSource
+Windows::Media::Core::TimedTextSource
+Windows::Media::Core::TimedTextSource::CreateFromUri
+Windows::Media::Playback::MediaPlayer::CreateInstance
+Windows::Media::Playback::IMediaPlayer::{Play, Pause, get_Position, get_NaturalDuration, get_CurrentState, get_IsLoopingEnabled, put_IsLoopingEnabled, get_IsMuted, put_IsMuted, get_PlaybackRate, put_PlaybackRate, get_Volume, put_Volume, get_BufferingProgress, add_MediaOpened, remove_MediaOpened, add_MediaEnded, remove_MediaEnded, add_MediaFailed, remove_MediaFailed, add_CurrentStateChanged, remove_CurrentStateChanged, add_BufferingStarted, remove_BufferingStarted, add_BufferingEnded, remove_BufferingEnded, add_SeekCompleted, remove_SeekCompleted}
+Windows::Media::Playback::IMediaPlayer2::get_SystemMediaTransportControls
+Windows::Media::Playback::IMediaPlayer3::{get_PlaybackSession, StepForwardOneFrame, StepBackwardOneFrame, get_CommandManager, put_RealTimePlayback, add_SourceChanged, remove_SourceChanged}
+Windows::Media::Playback::IMediaPlayerSource2::put_Source
+Windows::Media::Playback::MediaPlaybackSession
+Windows::Media::Playback::IMediaPlaybackSession::{get_Position, put_Position, get_NaturalDuration, get_PlaybackState, get_CanSeek, get_PlaybackRate, put_PlaybackRate, get_BufferingProgress, add_PlaybackStateChanged, remove_PlaybackStateChanged, add_PositionChanged, remove_PositionChanged, add_NaturalDurationChanged, remove_NaturalDurationChanged, add_BufferingProgressChanged, remove_BufferingProgressChanged}
+Windows::Media::Playback::IMediaPlaybackSession2::{add_SeekableRangesChanged, remove_SeekableRangesChanged, GetSeekableRanges}
+Windows::Media::Playback::MediaPlaybackState
+Windows::Media::Playback::MediaPlaybackItem
+Windows::Media::Playback::MediaPlaybackItem::Create
+Windows::Media::Playback::IMediaPlaybackItem::{get_AudioTracks, get_VideoTracks, get_TimedMetadataTracks, add_AudioTracksChanged, remove_AudioTracksChanged, add_VideoTracksChanged, remove_VideoTracksChanged, add_TimedMetadataTracksChanged, remove_TimedMetadataTracksChanged}
+Windows::Media::Playback::IMediaPlaybackItem2::{GetDisplayProperties, ApplyDisplayProperties}
+Windows::Media::Playback::MediaItemDisplayProperties
+Windows::Media::Playback::IMediaItemDisplayProperties::{put_Type, get_MusicProperties, get_VideoProperties}
+Windows::Media::Playback::MediaPlayerFailedEventArgs
+Windows::Media::Playback::IMediaPlayerFailedEventArgs::{get_Error, get_ErrorMessage}
+Windows::Media::Playback::MediaPlayerError
+Windows::Media::Playback::MediaPlaybackAudioTrackList
+Windows::Media::Playback::MediaPlaybackVideoTrackList
+Windows::Media::Playback::MediaPlaybackTimedMetadataTrackList
+Windows::Media::Playback::IMediaPlaybackTimedMetadataTrackList::{GetPresentationMode, SetPresentationMode}
+Windows::Media::Playback::TimedMetadataTrackPresentationMode
+Windows::Media::Playback::MediaPlaybackCommandManager
+Windows::Media::Playback::IMediaPlaybackCommandManager::{get_NextBehavior, get_PreviousBehavior, add_NextReceived, remove_NextReceived, add_PreviousReceived, remove_PreviousReceived}
+Windows::Media::Playback::IMediaPlaybackCommandManagerCommandBehavior::put_EnablingRule
+Windows::Media::Playback::MediaCommandEnablingRule
+Windows::Media::Playback::IMediaPlaybackCommandManagerNextReceivedEventArgs::put_Handled
+Windows::Media::Playback::IMediaPlaybackCommandManagerPreviousReceivedEventArgs::put_Handled
+Windows::Media::Streaming::Adaptive::AdaptiveMediaSource
+Windows::Media::Streaming::Adaptive::AdaptiveMediaSource::CreateFromUriAsync
+Windows::Media::Streaming::Adaptive::IAdaptiveMediaSource::{put_InitialBitrate, get_IsLive}
+Windows::Media::Streaming::Adaptive::AdaptiveMediaSourceCreationResult
+Windows::Media::Streaming::Adaptive::IAdaptiveMediaSourceCreationResult::{get_Status, get_MediaSource, get_HttpResponseMessage}
+Windows::Media::Streaming::Adaptive::AdaptiveMediaSourceCreationStatus
+Windows::Media::MediaPlaybackAutoRepeatMode
+Windows::Media::MediaPlaybackStatus
+Windows::Media::MediaPlaybackType
+Windows::Media::MediaTimeRange
+Windows::Media::SystemMediaTransportControls
+Windows::Media::ISystemMediaTransportControls::{put_IsEnabled, put_IsNextEnabled, put_IsPreviousEnabled, put_PlaybackStatus}
+Windows::Media::ISystemMediaTransportControls2::{put_AutoRepeatMode, put_ShuffleEnabled}
+Windows::Media::IMusicDisplayProperties::{put_Title, put_Artist}
+Windows::Media::IMusicDisplayProperties2::put_AlbumTitle
+Windows::Media::IVideoDisplayProperties::put_Title
+Windows::Storage::StorageFile
+Windows::Storage::StorageFile::GetFileFromPathAsync
+Windows::Storage::IStorageFile
+Windows::Media::Core::MediaSource::CreateFromStorageFile

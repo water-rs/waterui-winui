@@ -34,7 +34,7 @@ use waterui_core::handler::BoxedAction;
 use waterui_core::layout::Point as LayoutPoint;
 use waterui_core::{Environment, IgnorableMetadata, Metadata, Retain};
 use waterui_layout::safe_area::IgnoreSafeArea;
-use waterui_shape::{ClipShape, ShapeKind};
+use waterui_shape::{ClipShape, PathCommand, ShapeKind};
 use windows_core::Interface;
 use windows_numerics::{Vector2, Vector3};
 
@@ -711,11 +711,59 @@ fn install_clip(element: &UIElement, shape: &ClipShape) {
                 .expect("FrameworkElement::SizeChanged");
             store_event_revoker(&fe, revoker);
         }
-        ShapeKind::CustomPath => panic!(
-            "ClipShape::CustomPath requires Win2D path interop, which is not \
-             available on the WinUI backend"
-        ),
+        ShapeKind::CustomPath => install_path_clip(element, shape.commands()),
     }
+}
+
+/// Clips `element` to a unit-space `WaterUI` path via the compositor.
+///
+/// The path is recorded into an `ID2D1PathGeometry` and reaches the compositor
+/// as a `CompositionPath` (see [`crate::d2d`]); a 1×1 `CompositionViewBox`
+/// stretched to `Fill` maps the unit coordinates onto the visual's bounds, so
+/// the clip tracks resizes compositor-side with no `SizeChanged` handler.
+fn install_path_clip(element: &UIElement, commands: &[PathCommand]) {
+    let visual = ElementCompositionPreview::GetElementVisual(element).expect("GetElementVisual");
+    let compositor = visual
+        .cast::<ICompositionObject>()
+        .expect("ICompositionObject")
+        .Compositor()
+        .expect("CompositionObject::Compositor");
+    let clip = compositor
+        .cast::<ICompositor6>()
+        .expect("ICompositor6")
+        .CreateGeometricClip()
+        .expect("CreateGeometricClip");
+
+    let path = crate::d2d::composition_path(commands).expect("CompositionPath");
+    let geometry = compositor
+        .cast::<ICompositor5>()
+        .expect("ICompositor5")
+        .CreatePathGeometryWithPath(&path)
+        .expect("CreatePathGeometryWithPath");
+    clip.SetGeometry(
+        &geometry
+            .cast::<CompositionGeometry>()
+            .expect("CompositionGeometry"),
+    )
+    .expect("GeometricClip::SetGeometry");
+
+    let view_box = compositor
+        .cast::<ICompositor5>()
+        .expect("ICompositor5")
+        .CreateViewBox()
+        .expect("CreateViewBox");
+    view_box
+        .SetSize(Vector2 { x: 1.0, y: 1.0 })
+        .expect("ViewBox::SetSize");
+    view_box
+        .SetStretch(CompositionStretch::Fill)
+        .expect("ViewBox::SetStretch");
+    clip.SetViewBox(&view_box)
+        .expect("GeometricClip::SetViewBox");
+
+    visual
+        .SetClip(&clip.cast::<CompositionClip>().expect("CompositionClip"))
+        .expect("Visual::SetClip");
 }
 
 /// `Metadata<Hittable>` — `IsHitTestVisible` (+ `IsEnabled` for controls).

@@ -70,11 +70,35 @@ public static class User32 {
         EnumWindows(callback, IntPtr.Zero);
         return windows;
     }
+    // The first visible top-level window that is not a Win32 dialog (#32770).
+    // A process showing only a MessageBox — e.g. a missing-runtime prompt —
+    // has not shown its application window.
+    public static IntPtr AppWindowOfProcess(uint processId) {
+        IntPtr found = IntPtr.Zero;
+        EnumWindowsProc callback = (handle, param) => {
+            uint owner;
+            GetWindowThreadProcessId(handle, out owner);
+            if (owner == processId && IsWindowVisible(handle)) {
+                var cls = new StringBuilder(256);
+                GetClassName(handle, cls, cls.Capacity);
+                if (cls.ToString() != "#32770") {
+                    found = handle;
+                    return false;
+                }
+            }
+            return true;
+        };
+        EnumWindows(callback, IntPtr.Zero);
+        return found;
+    }
 }
 public struct RECT { public int Left, Top, Right, Bottom; }
 public struct POINT { public int X, Y; }
 '@
 }
+
+$windowShownMs = $null
+$paintedMs = $null
 
 try {
     $deadline = [DateTime]::UtcNow.AddSeconds($WindowTimeoutSec)
@@ -87,13 +111,20 @@ try {
             }
             throw "$Exe exited before showing a window (code $($proc.ExitCode)). $tail"
         }
-        if ($proc.MainWindowHandle -ne [IntPtr]::Zero) { break }
-        if ([DateTime]::UtcNow -gt $deadline) { throw "$Exe did not show a window within ${WindowTimeoutSec}s" }
+        $appWindow = [User32]::AppWindowOfProcess($proc.Id)
+        if ($appWindow -ne [IntPtr]::Zero) {
+            $windowShownMs = [int]([DateTime]::Now - $proc.StartTime).TotalMilliseconds
+            break
+        }
+        if ([DateTime]::UtcNow -gt $deadline) {
+            $windows = ([User32]::WindowsOfProcess($proc.Id)) -join ' | '
+            throw "$Exe did not show a window within ${WindowTimeoutSec}s. Process windows: $windows"
+        }
         Start-Sleep -Milliseconds 100
     }
 
     $rect = New-Object RECT
-    [User32]::GetWindowRect($proc.MainWindowHandle, [ref]$rect) | Out-Null
+    [User32]::GetWindowRect($appWindow, [ref]$rect) | Out-Null
     $width = $rect.Right - $rect.Left
     $height = $rect.Bottom - $rect.Top
     if ($width -le 0 -or $height -le 0) { throw "window has an empty rect ($width x $height)" }
@@ -103,8 +134,8 @@ try {
     # reports "painted" for a window that is still blank.
     $client = New-Object RECT
     $origin = New-Object POINT
-    [User32]::GetClientRect($proc.MainWindowHandle, [ref]$client) | Out-Null
-    [User32]::ClientToScreen($proc.MainWindowHandle, [ref]$origin) | Out-Null
+    [User32]::GetClientRect($appWindow, [ref]$client) | Out-Null
+    [User32]::ClientToScreen($appWindow, [ref]$origin) | Out-Null
     $sampleX = $origin.X - $rect.Left
     $sampleY = $origin.Y - $rect.Top
     $sampleW = $client.Right - $client.Left
@@ -125,7 +156,7 @@ try {
     $swpFlags = 0x0001 -bor 0x0002 -bor 0x0010 -bor 0x0040
     $deadline = [DateTime]::UtcNow.AddSeconds($PaintTimeoutSec)
     while ($true) {
-        [User32]::SetWindowPos($proc.MainWindowHandle, [IntPtr]::Zero, 0, 0, 0, 0, $swpFlags) | Out-Null
+        [User32]::SetWindowPos($appWindow, [IntPtr]::Zero, 0, 0, 0, 0, $swpFlags) | Out-Null
         if ($null -ne $bmp) { $bmp.Dispose() }
         $bmp = New-Object System.Drawing.Bitmap $width, $height
         $graphics = [System.Drawing.Graphics]::FromImage($bmp)
@@ -166,7 +197,11 @@ try {
                 $deviating += $freq[$argb]
             }
         }
-        if ($deviating -ge 4 -or $freq.Count -gt 16) { $painted = $true; break }
+        if ($deviating -ge 4 -or $freq.Count -gt 16) {
+            $painted = $true
+            $paintedMs = [int]([DateTime]::Now - $proc.StartTime).TotalMilliseconds
+            break
+        }
         $proc.Refresh()
         if ($proc.HasExited) { throw "$Exe exited while waiting for paint (code $($proc.ExitCode))" }
         if ([DateTime]::UtcNow -gt $deadline) { break }
@@ -181,7 +216,7 @@ try {
         $settleDeadline = [DateTime]::UtcNow.AddSeconds(3)
         $lastSignature = $null
         while ($true) {
-            [User32]::SetWindowPos($proc.MainWindowHandle, [IntPtr]::Zero, 0, 0, 0, 0, $swpFlags) | Out-Null
+            [User32]::SetWindowPos($appWindow, [IntPtr]::Zero, 0, 0, 0, 0, $swpFlags) | Out-Null
             $bmp.Dispose()
             $bmp = New-Object System.Drawing.Bitmap $width, $height
             $graphics = [System.Drawing.Graphics]::FromImage($bmp)
@@ -217,15 +252,37 @@ try {
         $desktop.Dispose()
     }
 
+    # Process counters are sampled after the frame settles — the OS maintains
+    # PeakWorkingSet64 continuously, so the read needs no polling during run.
+    # The process may exit mid-read; a stale counter is not worth failing the
+    # capture over.
+    $peakWorkingSetMB = $null
+    $privateBytesMB = $null
+    try {
+        $proc.Refresh()
+        if (-not $proc.HasExited) {
+            $peakWorkingSetMB = [Math]::Round($proc.PeakWorkingSet64 / 1MB, 1)
+            $privateBytesMB = [Math]::Round($proc.PrivateMemorySize64 / 1MB, 1)
+        }
+    } catch { }
+
     [pscustomobject]@{
-        Title       = $proc.MainWindowTitle
-        Painted     = $painted
-        WindowPng   = $windowPng
-        DesktopPng  = $desktopPng
+        Title            = {
+            $t = New-Object System.Text.StringBuilder 512
+            [User32]::GetWindowText($appWindow, $t, $t.Capacity) | Out-Null
+            $t.ToString()
+        }.Invoke()
+        Painted          = $painted
+        WindowPng        = $windowPng
+        DesktopPng       = $desktopPng
+        WindowShownMs    = $windowShownMs
+        PaintedMs        = $paintedMs
+        PeakWorkingSetMB = $peakWorkingSetMB
+        PrivateBytesMB   = $privateBytesMB
         # On a blank window, list every top-level window the process owns so
         # the summary can distinguish "content never rendered" from
         # "MainWindowHandle picked the wrong window".
-        Diagnostics = if ($painted) { '' } else {
+        Diagnostics      = if ($painted) { '' } else {
             ([User32]::WindowsOfProcess($proc.Id)) -join ' | '
         }
     }

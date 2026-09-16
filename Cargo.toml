@@ -30,7 +30,7 @@ workspace = true
 
 [features]
 default = ["gpu"]
-gpu = ["waterui-graphics/gpu"]
+gpu = ["waterui-graphics/gpu", "waterui-shape/gpu"]
 self-contained = ["dep:windows-reactor-setup"]
 
 [target.'cfg(target_os = "windows")'.dependencies]
@@ -55,6 +55,7 @@ waterui-navigation = "0.3.2"
 waterui-graphics = { version = "0.4.1", default-features = false }
 waterui-icon = "0.3.2"
 waterui-shape = { version = "0.1.2", default-features = false }
+waterui-video = "0.3.2"
 waterui-locale = "0.1.2"
 nami = "0.11.2"
 jiff = "0.2"
@@ -91,4 +92,5 @@ waterui-navigation = { git = "https://github.com/water-rs/waterui", rev = "34eea
 waterui-graphics = { git = "https://github.com/water-rs/waterui", rev = "34eeabfe1d217444d4a13c4387a5d1941a251d21" }
 waterui-icon = { git = "https://github.com/water-rs/waterui", rev = "34eeabfe1d217444d4a13c4387a5d1941a251d21" }
 waterui-shape = { git = "https://github.com/water-rs/waterui", rev = "34eeabfe1d217444d4a13c4387a5d1941a251d21" }
+waterui-video = { git = "https://github.com/water-rs/waterui", rev = "34eeabfe1d217444d4a13c4387a5d1941a251d21" }
 waterui-locale = { git = "https://github.com/water-rs/waterui", rev = "34eeabfe1d217444d4a13c4387a5d1941a251d21" }

@@ -569,9 +569,8 @@ impl WinUiComponent for Native<ProgressConfig> {
             ProgressStyle::Circular | ProgressStyle::Loading => {
                 let ring = ProgressRing::new().expect("ProgressRing::new");
                 ring.SetIsActive(true).expect("ProgressRing::SetIsActive");
-                let ring_range: RangeBase = ring.cast().expect("ProgressRing is a RangeBase");
-                ring_range.SetMinimum(0.0).expect("RangeBase::SetMinimum");
-                ring_range.SetMaximum(1.0).expect("RangeBase::SetMaximum");
+                ring.SetMinimum(0.0).expect("ProgressRing::SetMinimum");
+                ring.SetMaximum(1.0).expect("ProgressRing::SetMaximum");
                 children
                     .Append(
                         &ring
@@ -589,10 +588,8 @@ impl WinUiComponent for Native<ProgressConfig> {
                             ring.SetIsIndeterminate(value.is_nan())
                                 .expect("ProgressRing::SetIsIndeterminate");
                             if value.is_finite() {
-                                ring.cast::<RangeBase>()
-                                    .expect("RangeBase")
-                                    .SetValue(value.clamp(0.0, 1.0))
-                                    .expect("RangeBase::SetValue");
+                                ring.SetValue(value.clamp(0.0, 1.0))
+                                    .expect("ProgressRing::SetValue");
                             }
                         }
                     });
