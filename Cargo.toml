@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = [".", "tools/bindgen"]
+members = [".", "tools/bindgen", "vendor/gpu-allocator"]
 
 [workspace.package]
 version = "0.1.0"
@@ -41,26 +41,25 @@ windows-numerics = "0.100"
 windows-reference = { version = "0.100", features = ["std"] }
 windows-time = "0.100"
 send_wrapper = "0.6"
-waterui = { version = "=0.3.0", default-features = false }
-waterui-core = "=0.3.0"
-waterui-backend-core = { version = "=0.1.0", default-features = false, features = [
+waterui = { version = "0.4.1", default-features = false }
+waterui-core = "0.3.2"
+waterui-backend-core = { version = "0.1.2", default-features = false, features = [
     "widgets",
     "gestures",
 ] }
-waterui-str = "=0.3.0"
-waterui-text = "=0.3.0"
-waterui-controls = "=0.3.0"
-waterui-form = "=0.3.0"
-waterui-layout = "=0.3.0"
-waterui-navigation = "=0.3.0"
-waterui-graphics = { version = "=0.3.0", default-features = false }
-waterui-icon = "=0.3.0"
-waterui-shape = { version = "=0.1.0", default-features = false }
-waterui-video = "=0.3.0"
-waterui-locale = "=0.1.0"
-nami = "=0.11.2"
+waterui-text = "0.4.1"
+waterui-controls = "0.3.2"
+waterui-form = "0.3.2"
+waterui-layout = "0.3.2"
+waterui-navigation = "0.3.2"
+waterui-graphics = { version = "0.4.1", default-features = false }
+waterui-icon = "0.3.2"
+waterui-shape = { version = "0.1.2", default-features = false }
+waterui-video = "0.3.2"
+waterui-locale = "0.1.2"
+nami = "0.11.2"
 jiff = "0.2"
-executor-core = "=0.7.1"
+executor-core = "0.7.1"
 native-executor = "0.8"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3.23", default-features = false, features = ["fmt", "std"] }
@@ -72,6 +71,26 @@ windows-reactor-setup = { version = "0.100", optional = true }
 # `gpu-allocator` 0.28 declares a `>=0.53, <=0.62` range that the resolver can
 # satisfy with an older `windows` already in the graph, producing mismatched
 # COM types inside `wgpu-hal`. The vendored copy only narrows that range to
-# the version `wgpu-hal` itself uses.
+# the version `wgpu-hal` itself uses. It is a workspace member so a consumer
+# can pin it by git revision from its own `[patch]` table.
+#
+# The `waterui-*` entries mirror `water-rs/gtk-backend`: this repository
+# develops against WaterUI `dev`, and the patch pins are what keep the version
+# requirements above resolving to it. A consumer that pins `waterui-winui` by
+# git supplies its own `[patch]` — the `water` CLI writes one into the
+# generated crate.
 [patch.crates-io]
 gpu-allocator = { path = "vendor/gpu-allocator" }
+waterui = { git = "https://github.com/water-rs/waterui", rev = "34eeabfe1d217444d4a13c4387a5d1941a251d21" }
+waterui-core = { git = "https://github.com/water-rs/waterui", rev = "34eeabfe1d217444d4a13c4387a5d1941a251d21" }
+waterui-backend-core = { git = "https://github.com/water-rs/waterui", rev = "34eeabfe1d217444d4a13c4387a5d1941a251d21" }
+waterui-text = { git = "https://github.com/water-rs/waterui", rev = "34eeabfe1d217444d4a13c4387a5d1941a251d21" }
+waterui-controls = { git = "https://github.com/water-rs/waterui", rev = "34eeabfe1d217444d4a13c4387a5d1941a251d21" }
+waterui-form = { git = "https://github.com/water-rs/waterui", rev = "34eeabfe1d217444d4a13c4387a5d1941a251d21" }
+waterui-layout = { git = "https://github.com/water-rs/waterui", rev = "34eeabfe1d217444d4a13c4387a5d1941a251d21" }
+waterui-navigation = { git = "https://github.com/water-rs/waterui", rev = "34eeabfe1d217444d4a13c4387a5d1941a251d21" }
+waterui-graphics = { git = "https://github.com/water-rs/waterui", rev = "34eeabfe1d217444d4a13c4387a5d1941a251d21" }
+waterui-icon = { git = "https://github.com/water-rs/waterui", rev = "34eeabfe1d217444d4a13c4387a5d1941a251d21" }
+waterui-shape = { git = "https://github.com/water-rs/waterui", rev = "34eeabfe1d217444d4a13c4387a5d1941a251d21" }
+waterui-video = { git = "https://github.com/water-rs/waterui", rev = "34eeabfe1d217444d4a13c4387a5d1941a251d21" }
+waterui-locale = { git = "https://github.com/water-rs/waterui", rev = "34eeabfe1d217444d4a13c4387a5d1941a251d21" }

@@ -588,6 +588,8 @@ fn install_clip(element: &UIElement, shape: &ClipShape) {
         }
         ShapeKind::RoundedRect { .. }
         | ShapeKind::UnevenRoundedRect { .. }
+        | ShapeKind::FixedRoundedRect { .. }
+        | ShapeKind::FixedUnevenRoundedRect { .. }
         | ShapeKind::Capsule
         | ShapeKind::Circle
         | ShapeKind::Ellipse => {
@@ -666,6 +668,21 @@ fn install_clip(element: &UIElement, shape: &ClipShape) {
                                 top_left.max(top_right).max(bottom_left).max(bottom_right)
                                     * w.min(h)
                             }
+                            // Fixed radii are absolute lengths; the shape
+                            // contract clamps them to half the shorter side.
+                            ShapeKind::FixedRoundedRect { corner_radius } => {
+                                corner_radius.min(w.min(h) / 2.0)
+                            }
+                            ShapeKind::FixedUnevenRoundedRect {
+                                top_left,
+                                top_right,
+                                bottom_left,
+                                bottom_right,
+                            } => top_left
+                                .max(top_right)
+                                .max(bottom_left)
+                                .max(bottom_right)
+                                .min(w.min(h) / 2.0),
                             ShapeKind::Capsule => w.min(h) / 2.0,
                             _ => 0.0,
                         };

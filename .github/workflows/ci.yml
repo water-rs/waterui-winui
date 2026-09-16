@@ -38,12 +38,22 @@ jobs:
       - name: Install DirectX Shader Compiler
         uses: tracel-ai/github-actions/install-dxc@295f2fdbae5271f4f8ad56d634e4ff6a95daafc8
       - run: cargo fmt --check
-      - run: cargo check --locked --workspace --no-default-features
-      - run: cargo check --locked --workspace --all-targets
-      - run: cargo clippy --locked --workspace --all-targets -- -D warnings
+      # `--no-default-features` applies to every selected workspace member;
+      # the vendored `gpu-allocator` (a member so consumers can git-pin it)
+      # requires its default `std` feature, so it sits this leg out.
+      - run: cargo check --locked --workspace --exclude gpu-allocator --no-default-features
+      # `--all-targets` cannot cover the vendored member on any single host:
+      # upstream's examples are platform-bound (`metal-buffer` links Apple
+      # frameworks, `d3d12-buffer-winrs` the `windows` crate), so the member
+      # gets a scoped leg for what a Windows host can build — its library,
+      # its tests and the D3D12 example that exercises the vendored patch.
+      - run: cargo check --locked --workspace --all-targets --exclude gpu-allocator
+      - run: cargo check --locked -p gpu-allocator --lib --tests --example d3d12-buffer-winrs
+      - run: cargo clippy --locked --workspace --all-targets --exclude gpu-allocator -- -D warnings
+      - run: cargo clippy --locked -p gpu-allocator --lib --tests --example d3d12-buffer-winrs -- -D warnings
       - uses: taiki-e/install-action@nextest
-      - run: cargo nextest run --locked --workspace --no-tests warn
-      - run: cargo test --locked --workspace --doc
+      - run: cargo nextest run --locked --workspace --exclude gpu-allocator --no-tests warn
+      - run: cargo test --locked --workspace --exclude gpu-allocator --doc
 
   smoke:
     name: windows-latest (smoke)
