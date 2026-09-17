@@ -1,0 +1,25 @@
+[workspace]
+pr_draft = false
+pr_labels = ["release"]
+git_release_name = "v{{ version }}"
+publish = true
+release_always = true
+git_tag_enable = true
+changelog_update = true
+
+[[package]]
+name = "waterui-winui"
+git_release_name = "v{{ version }}"
+git_tag_name = "v{{ version }}"
+
+# Workspace members that exist only to build this crate: the vendored
+# gpu-allocator (its `windows` range narrowed to what wgpu-hal links) and the
+# WinRT bindings generator. Both are `publish = false`; release-plz leaves them
+# unversioned and untagged.
+[[package]]
+name = "gpu-allocator"
+release = false
+
+[[package]]
+name = "winui-bindgen"
+release = false
