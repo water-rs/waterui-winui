@@ -32,14 +32,14 @@ jobs:
         id: pin
         run: |
           $manifest = Get-Content waterui-winui\Cargo.toml -Raw
-          if ($manifest -notmatch 'waterui\s*=\s*\{[^}]*version\s*=\s*"=([0-9.]+)"') {
-            throw 'cannot find the waterui version pin in Cargo.toml'
+          # The backend develops against a pinned framework commit: the
+          # `waterui` entry in `[patch.crates-io]` carries the revision the
+          # nightly checks the examples out at, so the runner crates resolve
+          # the same sources this repository builds.
+          if ($manifest -notmatch 'waterui\s*=\s*\{[^}]*rev\s*=\s*"([0-9a-f]{40})"') {
+            throw 'cannot find the `waterui` rev pin in [patch.crates-io] in Cargo.toml'
           }
-          # The pinned minor's backport branch (`release/v<major>.<minor>.x`)
-          # carries the release line plus backported fixes the nightly needs —
-          # e.g. the CEF bootstrap entry point that v0.3.0 predates.
-          $parts = $Matches[1] -split '\.'
-          "ref=release/v$($parts[0]).$($parts[1]).x" >> $env:GITHUB_OUTPUT
+          "ref=$($Matches[1])" >> $env:GITHUB_OUTPUT
       - uses: actions/checkout@v4
         with:
           repository: water-rs/waterui
