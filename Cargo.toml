@@ -41,22 +41,22 @@ windows-numerics = "0.100"
 windows-reference = { version = "0.100", features = ["std"] }
 windows-time = "0.100"
 send_wrapper = "0.6"
-waterui = { version = "0.4.1", default-features = false }
-waterui-core = "0.3.2"
-waterui-backend-core = { version = "0.1.2", default-features = false, features = [
+waterui = { version = "0.5.0", default-features = false }
+waterui-core = "0.5.0"
+waterui-backend-core = { version = "0.5.0", default-features = false, features = [
     "widgets",
     "gestures",
 ] }
-waterui-text = "0.4.1"
-waterui-controls = "0.3.2"
-waterui-form = "0.3.2"
-waterui-layout = "0.3.2"
-waterui-navigation = "0.3.2"
-waterui-graphics = { version = "0.4.1", default-features = false }
-waterui-icon = "0.3.2"
-waterui-shape = { version = "0.1.2", default-features = false }
-waterui-video = "0.3.2"
-waterui-locale = "0.1.2"
+waterui-text = "0.5.0"
+waterui-controls = "0.5.0"
+waterui-form = "0.5.0"
+waterui-layout = "0.5.0"
+waterui-navigation = "0.5.0"
+waterui-graphics = { version = "0.5.0", default-features = false }
+waterui-icon = "0.5.0"
+waterui-shape = { version = "0.5.0", default-features = false }
+waterui-video = "0.5.0"
+waterui-locale = "0.5.0"
 nami = "0.11.2"
 jiff = "0.2"
 executor-core = "0.7.1"
@@ -73,39 +73,16 @@ windows-reactor-setup = { version = "0.100", optional = true }
 # COM types inside `wgpu-hal`. The vendored copy only narrows that range to
 # the version `wgpu-hal` itself uses. It is a workspace member so a consumer
 # can pin it by git revision from its own `[patch]` table.
-#
-# Until the 0.5.0 wave is on crates.io every `waterui-*` crate this graph
-# resolves is patched to the release-candidate revision on `water-rs/waterui`,
-# so the graph can never carry two copies of `waterui-core`. The requirements
-# above name what the pinned revision provides — a `[patch]` candidate must
-# satisfy the requirement, and the pinned manifests still carry the
-# pre-release versions — so they move to the published wave versions in the
-# change that drops this table. A consumer that pins `waterui-winui` by git
-# supplies its own `[patch]` — the `water` CLI writes one into the generated
-# crate.
 [patch.crates-io]
 gpu-allocator = { path = "vendor/gpu-allocator" }
-waterui = { git = "https://github.com/water-rs/waterui", rev = "f004c2fd86280ddf678124c59d984868a9d3f4c6" }
-waterui-core = { git = "https://github.com/water-rs/waterui", rev = "f004c2fd86280ddf678124c59d984868a9d3f4c6" }
-waterui-backend-core = { git = "https://github.com/water-rs/waterui", rev = "f004c2fd86280ddf678124c59d984868a9d3f4c6" }
-waterui-text = { git = "https://github.com/water-rs/waterui", rev = "f004c2fd86280ddf678124c59d984868a9d3f4c6" }
-waterui-controls = { git = "https://github.com/water-rs/waterui", rev = "f004c2fd86280ddf678124c59d984868a9d3f4c6" }
-waterui-form = { git = "https://github.com/water-rs/waterui", rev = "f004c2fd86280ddf678124c59d984868a9d3f4c6" }
-waterui-layout = { git = "https://github.com/water-rs/waterui", rev = "f004c2fd86280ddf678124c59d984868a9d3f4c6" }
-waterui-navigation = { git = "https://github.com/water-rs/waterui", rev = "f004c2fd86280ddf678124c59d984868a9d3f4c6" }
-waterui-graphics = { git = "https://github.com/water-rs/waterui", rev = "f004c2fd86280ddf678124c59d984868a9d3f4c6" }
-waterui-icon = { git = "https://github.com/water-rs/waterui", rev = "f004c2fd86280ddf678124c59d984868a9d3f4c6" }
-waterui-shape = { git = "https://github.com/water-rs/waterui", rev = "f004c2fd86280ddf678124c59d984868a9d3f4c6" }
-waterui-video = { git = "https://github.com/water-rs/waterui", rev = "f004c2fd86280ddf678124c59d984868a9d3f4c6" }
-waterui-locale = { git = "https://github.com/water-rs/waterui", rev = "f004c2fd86280ddf678124c59d984868a9d3f4c6" }
 
-# The third-party pins below are the framework's own `[patch.crates-io]` at the
-# pinned revision: the git-pinned `waterui-*` crates declare the registry
-# requirements, and a dependency's patch table does not apply downstream, so
-# this table has to carry the same forks or the graph builds upstream code the
-# framework deliberately avoids. The `xcb`/`block` forks the framework also
-# pins are unreachable here — they sit behind webview/clipboard paths this
-# backend's graph never resolves, and an unused patch is a warning.
+# The third-party pins below are the framework's own `[patch.crates-io]`: the
+# published `waterui-*` crates declare the registry requirements, and a
+# dependency's patch table does not apply downstream, so this table has to
+# carry the same forks or the graph builds upstream code the framework
+# deliberately avoids. The `xcb`/`block` forks the framework also pins are
+# unreachable here — they sit behind webview/clipboard paths this backend's
+# graph never resolves, and an unused patch is a warning.
 vello = { git = "https://github.com/lexoliu/vello", rev = "5e5f538556be16527f67379b105af82f408b747d" }
 vello_hybrid = { git = "https://github.com/lexoliu/vello", rev = "d68d9e9825bcd1ffee762323881c13a2e7a3f639" }
 vello_common = { git = "https://github.com/lexoliu/vello", rev = "d68d9e9825bcd1ffee762323881c13a2e7a3f639" }
