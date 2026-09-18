@@ -144,6 +144,7 @@ pub(crate) fn render_gpu_surface(
                 context.scene_renderer(),
                 max_samples,
                 redraw_handle,
+                context.device_loss(),
             );
             // `view` has exactly one borrower on the single-threaded UI dispatcher.
             state.view.borrow_mut().setup(&ctx, &mut env).await;
