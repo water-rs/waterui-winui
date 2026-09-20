@@ -26,36 +26,80 @@ $OutDir = (New-Item -ItemType Directory -Force -Path $OutDir).FullName
 $env:CARGO_TARGET_DIR = Join-Path $repo 'target\nightly\target'
 $genRoot = Join-Path $repo 'target\nightly\runners'
 
-# The waterui version this backend pins — the checkout must match it so the
-# patch below can satisfy our `=` requirements.
+# The waterui revision this backend pins — the checkout must sit on it so the
+# patch below resolves the examples' registry requirements to the same sources
+# waterui-winui itself builds.
 $manifest = Get-Content (Join-Path $repo 'Cargo.toml') -Raw
-if ($manifest -notmatch 'waterui\s*=\s*\{[^}]*version\s*=\s*"=([0-9.]+)"') {
-    throw 'cannot find the `waterui = "=..."` pin in waterui-winui/Cargo.toml'
+if ($manifest -notmatch 'waterui\s*=\s*\{[^}]*rev\s*=\s*"([0-9a-f]{40})"') {
+    throw 'cannot find the `waterui` rev pin in [patch.crates-io] in waterui-winui/Cargo.toml'
 }
-$pinned = $Matches[1]
+$pinnedRev = $Matches[1]
 if ($manifest -notmatch 'windows-reactor-setup\s*=\s*\{[^}]*version\s*=\s*"([^"]+)"') {
     throw 'cannot find the `windows-reactor-setup` version in waterui-winui/Cargo.toml'
 }
 $reactorSetup = $Matches[1]
 
+$head = (git -C $WateruiPath rev-parse HEAD)
+if ($LASTEXITCODE -ne 0) { throw 'git rev-parse failed on the waterui checkout' }
+if ($head.Trim() -ne $pinnedRev) {
+    throw "waterui checkout is at $($head.Trim()) but the backend pins $pinnedRev"
+}
+
 $meta = cargo metadata --format-version 1 --no-deps --manifest-path (Join-Path $WateruiPath 'Cargo.toml') | ConvertFrom-Json
 if ($LASTEXITCODE -ne 0) { throw 'cargo metadata failed on the waterui workspace' }
 $wateruiPkg = $meta.packages | Where-Object { $_.name -eq 'waterui' } | Select-Object -First 1
-if (-not $wateruiPkg -or $wateruiPkg.version -ne $pinned) {
-    throw "waterui checkout is version $($wateruiPkg.version) but the backend pins =$pinned"
-}
+if (-not $wateruiPkg) { throw 'no waterui package in the waterui workspace metadata' }
+# The runner crates require `waterui = "=…"`; the path patches below satisfy
+# it, so the requirement names the checkout's version exactly.
+$pinned = $wateruiPkg.version
 
-# Only crates our dependency graph actually resolves from crates.io need a
-# patch; the rest of the waterui workspace stays internal to the examples.
+# Every waterui crate our dependency graph names gets a path patch into the
+# checkout; the rest of the waterui workspace stays internal to the examples.
+# Our graph resolves the pinned crates from their git source rather than the
+# registry, so the set is every checkout package our graph names — not just
+# registry sources.
 $ourMeta = cargo metadata --locked --format-version 1 --manifest-path (Join-Path $repo 'Cargo.toml') | ConvertFrom-Json
 if ($LASTEXITCODE -ne 0) { throw 'cargo metadata failed on waterui-winui' }
-$registry = @{}
+$resolved = @{}
 foreach ($p in $ourMeta.packages) {
-    if ($p.source -and $p.source.StartsWith('registry')) { $registry[$p.name] = $true }
+    if ($p.source) { $resolved[$p.name] = $true }
 }
+$emitted = @{}
 $patchLines = foreach ($p in $meta.packages) {
-    if ($registry.ContainsKey($p.name)) {
+    if ($resolved.ContainsKey($p.name) -and -not $emitted.ContainsKey($p.name)) {
+        $emitted[$p.name] = $true
         '{0} = {{ path = "{1}" }}' -f $p.name, ((Split-Path $p.manifest_path -Parent) -replace '\\', '/')
+    }
+}
+# The backend's own `[patch.crates-io]` also carries third-party pins (the
+# vello fork stack, the vendored gpu-allocator) that a dependency's table
+# cannot propagate; the runner inherits them or it compiles upstream code the
+# backend deliberately avoids. Path entries are rewritten to absolute paths
+# under this repository.
+$repoFwd = $repo -replace '\\', '/'
+foreach ($line in ($manifest -split "`r?`n")) {
+    if ($line -notmatch '^([A-Za-z0-9_-]+)\s*=\s*\{') { continue }
+    $name = $Matches[1]
+    if ($name -like 'waterui*' -or $emitted.ContainsKey($name)) { continue }
+    if ($line -match 'path\s*=\s*"([^"]+)"') {
+        $emitted[$name] = $true
+        $patchLines += "$name = { path = `"$repoFwd/$($Matches[1])`" }"
+    } elseif ($line -match 'git\s*=') {
+        $emitted[$name] = $true
+        $patchLines += $line.Trim()
+    }
+}
+# Satellites and forks the pinned framework itself patches (waterui-svg and
+# friends) are registry requirements inside the checkout's crates: examples
+# that name them resolve the framework's pinned revisions, copied here so no
+# crates.io build of a satellite sits beside the pinned framework.
+$wateruiManifest = Get-Content (Join-Path $WateruiPath 'Cargo.toml') -Raw
+if ($wateruiManifest -match '(?s)\[patch\.crates-io\](.+?)(?:\r?\n\[|\z)') {
+    foreach ($line in ($Matches[1] -split "`r?`n")) {
+        if ($line -match '^([A-Za-z0-9_-]+)\s*=\s*\{[^}]*git\s*=' -and -not $emitted.ContainsKey($Matches[1])) {
+            $emitted[$Matches[1]] = $true
+            $patchLines += $line.Trim()
+        }
     }
 }
 $patchSection = ($patchLines | Sort-Object) -join "`n"
@@ -180,8 +224,6 @@ function Repair-SelfContainedRuntime([string] $Dest) {
     }
     return $false
 }
-
-$repoFwd = $repo -replace '\\', '/'
 
 # Emits one result object, persists it as result-<id>.json for the workflow's
 # aggregate job, and returns it for the per-job summary.

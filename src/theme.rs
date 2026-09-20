@@ -9,8 +9,9 @@
 
 use nami::{Binding, SignalExt, binding};
 use waterui::theme::color::{
-    Accent, AccentContainer, AccentForeground, Background, Border, Foreground, MutedForeground,
-    SelectionContainer, SelectionForeground, Surface, SurfaceVariant, Tertiary, TertiaryContainer,
+    Accent, AccentContainer, AccentForeground, Background, Border, Error, ErrorForeground,
+    Foreground, MutedForeground, SelectionContainer, SelectionForeground, Surface, SurfaceVariant,
+    Tertiary, TertiaryContainer,
 };
 use waterui::theme::{
     ColorScheme, install_color_scheme, install_color_signal, install_font_signal,
@@ -49,6 +50,8 @@ struct ThemeSignals {
     tertiary_container: Binding<ResolvedColor>,
     selection_container: Binding<ResolvedColor>,
     selection_foreground: Binding<ResolvedColor>,
+    error: Binding<ResolvedColor>,
+    error_foreground: Binding<ResolvedColor>,
     color_scheme: Binding<ColorScheme>,
 }
 
@@ -77,6 +80,8 @@ pub fn install(env: &mut Environment) -> windows_core::Result<()> {
     install_missing::<TertiaryContainer>(env, &signals.tertiary_container);
     install_missing::<SelectionContainer>(env, &signals.selection_container);
     install_missing::<SelectionForeground>(env, &signals.selection_foreground);
+    install_missing::<Error>(env, &signals.error);
+    install_missing::<ErrorForeground>(env, &signals.error_foreground);
 
     if installed_color_scheme(env).is_none() {
         install_color_scheme(env, signals.color_scheme.computed());
@@ -151,6 +156,8 @@ impl ThemeSignals {
                 resources,
                 "TextOnAccentFillColorPrimaryBrush",
             )),
+            error: binding(brush_color(resources, "SystemFillColorCriticalBrush")),
+            error_foreground: binding(brush_color(resources, "TextOnAccentFillColorPrimaryBrush")),
             color_scheme: binding(ColorScheme::Light),
         }
     }
@@ -174,6 +181,8 @@ impl ThemeSignals {
             .set(fresh.selection_container.get());
         self.selection_foreground
             .set(fresh.selection_foreground.get());
+        self.error.set(fresh.error.get());
+        self.error_foreground.set(fresh.error_foreground.get());
         self.color_scheme.set(scheme_of(root));
     }
 }
