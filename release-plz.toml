@@ -14,12 +14,16 @@ git_tag_name = "v{{ version }}"
 
 # Workspace members that exist only to build this crate: the vendored
 # gpu-allocator (its `windows` range narrowed to what wgpu-hal links) and the
-# WinRT bindings generator. Both are `publish = false`; release-plz leaves them
-# unversioned and untagged.
+# WinRT bindings generator. Both are `publish = false` in their manifests, and
+# release-plz refuses a workspace whose config says `publish = true` for such a
+# member, so the config says so too; release-plz leaves them unversioned and
+# untagged.
 [[package]]
 name = "gpu-allocator"
 release = false
+publish = false
 
 [[package]]
 name = "winui-bindgen"
 release = false
+publish = false
