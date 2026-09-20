@@ -67,37 +67,29 @@ tracing-subscriber = { version = "0.3.23", default-features = false, features = 
 [target.'cfg(target_os = "windows")'.build-dependencies]
 windows-reactor-setup = { version = "0.100", optional = true }
 
-# `wgpu-hal` 29.x compiles its D3D12 backend against `windows` 0.62 while
-# `gpu-allocator` 0.28 declares a `>=0.53, <=0.62` range that the resolver can
-# satisfy with an older `windows` already in the graph, producing mismatched
-# COM types inside `wgpu-hal`. The vendored copy only narrows that range to
-# the version `wgpu-hal` itself uses. It is a workspace member so a consumer
-# can pin it by git revision from its own `[patch]` table.
-#
-# Until the 0.5.0 wave is on crates.io every `waterui-*` crate this graph
-# resolves is patched to the release-candidate revision on `water-rs/waterui`,
-# so the graph can never carry two copies of `waterui-core`. The requirements
-# above name what the pinned revision provides — a `[patch]` candidate must
-# satisfy the requirement, and the pinned manifests still carry the
-# pre-release versions — so they move to the published wave versions in the
-# change that drops this table. A consumer that pins `waterui-winui` by git
-# supplies its own `[patch]` — the `water` CLI writes one into the generated
-# crate.
+# The 0.5.0 framework release is in flight from b25438ae on `water-rs/waterui`
+# `main`; release-plz publishes the `waterui-*` version group from that commit
+# in dependency order. Until every crate this graph resolves is on crates.io,
+# all of them are pinned to that same commit: the framework crates reach each
+# other by path, so a registry copy beside a git twin would compile two
+# `waterui-core`. Sibling components and the hydrolysis pair are pinned to their
+# own `release/0.5.0-wave` commits, which require the same framework versions.
+# Publishing ignores this table; it drops once the wave is on the registry.
 [patch.crates-io]
 gpu-allocator = { path = "vendor/gpu-allocator" }
-waterui = { git = "https://github.com/water-rs/waterui", rev = "d6807a87c39b2b3f6e992cd9f205f93a2155ed8b" }
-waterui-core = { git = "https://github.com/water-rs/waterui", rev = "d6807a87c39b2b3f6e992cd9f205f93a2155ed8b" }
-waterui-backend-core = { git = "https://github.com/water-rs/waterui", rev = "d6807a87c39b2b3f6e992cd9f205f93a2155ed8b" }
-waterui-text = { git = "https://github.com/water-rs/waterui", rev = "d6807a87c39b2b3f6e992cd9f205f93a2155ed8b" }
-waterui-controls = { git = "https://github.com/water-rs/waterui", rev = "d6807a87c39b2b3f6e992cd9f205f93a2155ed8b" }
-waterui-form = { git = "https://github.com/water-rs/waterui", rev = "d6807a87c39b2b3f6e992cd9f205f93a2155ed8b" }
-waterui-layout = { git = "https://github.com/water-rs/waterui", rev = "d6807a87c39b2b3f6e992cd9f205f93a2155ed8b" }
-waterui-navigation = { git = "https://github.com/water-rs/waterui", rev = "d6807a87c39b2b3f6e992cd9f205f93a2155ed8b" }
-waterui-graphics = { git = "https://github.com/water-rs/waterui", rev = "d6807a87c39b2b3f6e992cd9f205f93a2155ed8b" }
-waterui-icon = { git = "https://github.com/water-rs/waterui", rev = "d6807a87c39b2b3f6e992cd9f205f93a2155ed8b" }
-waterui-shape = { git = "https://github.com/water-rs/waterui", rev = "d6807a87c39b2b3f6e992cd9f205f93a2155ed8b" }
-waterui-video = { git = "https://github.com/water-rs/waterui", rev = "d6807a87c39b2b3f6e992cd9f205f93a2155ed8b" }
-waterui-locale = { git = "https://github.com/water-rs/waterui", rev = "d6807a87c39b2b3f6e992cd9f205f93a2155ed8b" }
+waterui = { git = "https://github.com/water-rs/waterui", rev = "b25438ae309d69c8a91c6ecc2580723ed1dd792b" }
+waterui-core = { git = "https://github.com/water-rs/waterui", rev = "b25438ae309d69c8a91c6ecc2580723ed1dd792b" }
+waterui-backend-core = { git = "https://github.com/water-rs/waterui", rev = "b25438ae309d69c8a91c6ecc2580723ed1dd792b" }
+waterui-text = { git = "https://github.com/water-rs/waterui", rev = "b25438ae309d69c8a91c6ecc2580723ed1dd792b" }
+waterui-controls = { git = "https://github.com/water-rs/waterui", rev = "b25438ae309d69c8a91c6ecc2580723ed1dd792b" }
+waterui-form = { git = "https://github.com/water-rs/waterui", rev = "b25438ae309d69c8a91c6ecc2580723ed1dd792b" }
+waterui-layout = { git = "https://github.com/water-rs/waterui", rev = "b25438ae309d69c8a91c6ecc2580723ed1dd792b" }
+waterui-navigation = { git = "https://github.com/water-rs/waterui", rev = "b25438ae309d69c8a91c6ecc2580723ed1dd792b" }
+waterui-graphics = { git = "https://github.com/water-rs/waterui", rev = "b25438ae309d69c8a91c6ecc2580723ed1dd792b" }
+waterui-icon = { git = "https://github.com/water-rs/waterui", rev = "b25438ae309d69c8a91c6ecc2580723ed1dd792b" }
+waterui-shape = { git = "https://github.com/water-rs/waterui", rev = "b25438ae309d69c8a91c6ecc2580723ed1dd792b" }
+waterui-video = { git = "https://github.com/water-rs/waterui", rev = "b25438ae309d69c8a91c6ecc2580723ed1dd792b" }
+waterui-locale = { git = "https://github.com/water-rs/waterui", rev = "b25438ae309d69c8a91c6ecc2580723ed1dd792b" }
 
 # The third-party pins below are the framework's own `[patch.crates-io]` at the
 # pinned revision: the git-pinned `waterui-*` crates declare the registry
