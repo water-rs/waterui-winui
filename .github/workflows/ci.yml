@@ -55,6 +55,47 @@ jobs:
       - run: cargo nextest run --locked --workspace --exclude gpu-allocator --no-tests warn
       - run: cargo test --locked --workspace --exclude gpu-allocator --doc
 
+  msrv:
+    name: windows-latest (msrv)
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      # The floor is whatever `Cargo.toml` declares, read here rather than
+      # written twice: a hardcoded version in CI drifts from the manifest and
+      # then gates a number nobody declared.
+      - name: Read rust-version from Cargo.toml
+        id: msrv
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(sed -n 's/^rust-version = "\(.*\)"/\1/p' Cargo.toml)"
+          if [ -z "$version" ]; then
+            echo "::error::Cargo.toml declares no rust-version"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          # Installing a toolchain is not building with it: the action only
+          # sets the rustup default, and this repository's
+          # `rust-toolchain.toml` overrides the default for every cargo
+          # invocation inside the checkout. `RUSTUP_TOOLCHAIN` is the one
+          # override that beats the file.
+          echo "RUSTUP_TOOLCHAIN=$version" >> "$GITHUB_ENV"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ steps.msrv.outputs.version }}
+      - name: Install DirectX Shader Compiler
+        uses: tracel-ai/github-actions/install-dxc@295f2fdbae5271f4f8ad56d634e4ff6a95daafc8
+      # Proof in the log that the floor is what compiled, so a later change to
+      # the pin or the action cannot quietly make this a second stable run.
+      - name: Show the toolchain this job builds with
+        run: rustc --version && cargo --version
+      # The shipped artifact is what MSRV bounds: dev-dependencies may
+      # legitimately require newer, so check the package targets only. The
+      # vendored `gpu-allocator` member carries its own lower `rust-version`,
+      # so it sits this leg out exactly as in the check job.
+      - run: cargo check --locked --workspace --exclude gpu-allocator
+
   smoke:
     name: windows-latest (smoke)
     runs-on: windows-latest
