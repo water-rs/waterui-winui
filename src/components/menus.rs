@@ -26,7 +26,12 @@ impl WinUiComponent for Native<ResolvedMenu> {
             .expect("ContentControl::SetContent");
 
         let flyout = MenuFlyout::new().expect("MenuFlyout::new");
-        rebuild_flyout(&flyout, &menu.items.get(), env, renderer.executor().queue());
+        rebuild_flyout(
+            &flyout,
+            &menu.items.snapshot(),
+            env,
+            renderer.executor().queue(),
+        );
 
         let queue = renderer.executor().queue().clone();
         let weak = flyout.downgrade().expect("MenuFlyout supports weak refs");
@@ -82,14 +87,14 @@ fn build_menu_item(
     match item {
         ResolvedMenuItem::Command(command) => {
             let entry = MenuFlyoutItem::new().expect("MenuFlyoutItem::new");
-            let text = command.label.content.get().to_plain().to_string();
+            let text = command.label.content.snapshot().to_plain().to_string();
             entry
                 .SetText(text.as_str())
                 .expect("MenuFlyoutItem::SetText");
             entry
                 .cast::<Control>()
                 .expect("MenuFlyoutItem is a Control")
-                .SetIsEnabled(!command.disabled.get())
+                .SetIsEnabled(!command.disabled.snapshot())
                 .expect("Control::SetIsEnabled");
 
             if let Some(icon) = &command.icon
@@ -142,14 +147,14 @@ fn build_menu_item(
             .expect("MenuFlyoutSeparator is a MenuFlyoutItemBase"),
         ResolvedMenuItem::Menu(nested) => {
             let entry = MenuFlyoutSubItem::new().expect("MenuFlyoutSubItem::new");
-            let text = nested.label.content.get().to_plain().to_string();
+            let text = nested.label.content.snapshot().to_plain().to_string();
             entry
                 .SetText(text.as_str())
                 .expect("MenuFlyoutSubItem::SetText");
             let items = crate::util::vector::<_, MenuFlyoutItemBase>(
                 &entry.Items().expect("MenuFlyoutSubItem::Items"),
             );
-            for child in nested.items.get() {
+            for child in nested.items.snapshot() {
                 items
                     .Append(&build_menu_item(&child, env, queue))
                     .expect("IVector::Append");

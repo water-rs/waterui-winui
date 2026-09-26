@@ -972,7 +972,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2482,9 +2482,8 @@ dependencies = [
 
 [[package]]
 name = "nami"
-version = "0.11.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b66f346970519dd65bc7c1dcf49696edcf43eb9916f3bb00f2b8841c44de6d35"
+version = "0.11.1"
+source = "git+https://github.com/water-rs/nami?rev=5dc2d92e4ee9a236afdf71aaf4ef5b26a6990425#5dc2d92e4ee9a236afdf71aaf4ef5b26a6990425"
 dependencies = [
  "async-channel",
  "async-io",
@@ -2501,14 +2500,12 @@ dependencies = [
 [[package]]
 name = "nami-core"
 version = "0.3.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9a70d1da3e07e48053148d4e32d49274c9249ab710ec26e9f10570e175a647ec"
+source = "git+https://github.com/water-rs/nami?rev=5dc2d92e4ee9a236afdf71aaf4ef5b26a6990425#5dc2d92e4ee9a236afdf71aaf4ef5b26a6990425"
 
 [[package]]
 name = "nami-derive"
-version = "0.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8b76f4c97f6726b9589ca160480b114b8ee6cf4bfbe839253f426c1b778fc5fe"
+version = "0.3.0"
+source = "git+https://github.com/water-rs/nami?rev=5dc2d92e4ee9a236afdf71aaf4ef5b26a6990425#5dc2d92e4ee9a236afdf71aaf4ef5b26a6990425"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3212,7 +3209,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3636,7 +3633,7 @@ dependencies = [
  "getrandom 0.4.3",
  "once_cell",
  "rustix",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4112,8 +4109,7 @@ dependencies = [
 [[package]]
 name = "waterkit-build"
 version = "0.1.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1720f57319c50ffab073232fe1d2e6a00bb6c80f1018c20664c05dde4b62381d"
+source = "git+https://github.com/water-rs/waterkit?rev=123b0581c908d424826c4f07cd25d5c0cc0d07ec#123b0581c908d424826c4f07cd25d5c0cc0d07ec"
 dependencies = [
  "jni 0.22.4",
  "ndk-context",
@@ -4124,8 +4120,7 @@ dependencies = [
 [[package]]
 name = "waterkit-dialog"
 version = "0.1.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7f396c753710fd6fe85a4bc189d2bb21d49e50fa87049975dfee8ce9cb1de4de"
+source = "git+https://github.com/water-rs/waterkit?rev=123b0581c908d424826c4f07cd25d5c0cc0d07ec#123b0581c908d424826c4f07cd25d5c0cc0d07ec"
 dependencies = [
  "futures",
  "jni 0.22.4",
@@ -4141,8 +4136,7 @@ dependencies = [
 [[package]]
 name = "waterkit-fs"
 version = "0.1.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f13067126d8106ed4c627d463950e90eb8c7512edaf7e45c8e2f5354238cf1ff"
+source = "git+https://github.com/water-rs/waterkit?rev=123b0581c908d424826c4f07cd25d5c0cc0d07ec#123b0581c908d424826c4f07cd25d5c0cc0d07ec"
 dependencies = [
  "async-fs",
  "dirs",
@@ -4159,18 +4153,16 @@ dependencies = [
 
 [[package]]
 name = "waterui"
-version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "60563f997e64cdd3e9bb40fc738cb13963564e50d9e9d901581195bffa8e1bf2"
+version = "0.5.2"
+source = "git+https://github.com/water-rs/waterui?rev=b956632e0c4808707b9ab0e1d59e8af09c63fe8d#b956632e0c4808707b9ab0e1d59e8af09c63fe8d"
 dependencies = [
  "waterui-internal",
 ]
 
 [[package]]
 name = "waterui-backend-core"
-version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c1d0fbd266756156bc1f6bf6656ff08c451a861ffbb60b88b4db7bbbc31e77f5"
+version = "0.5.2"
+source = "git+https://github.com/water-rs/waterui?rev=b956632e0c4808707b9ab0e1d59e8af09c63fe8d#b956632e0c4808707b9ab0e1d59e8af09c63fe8d"
 dependencies = [
  "kurbo",
  "nami",
@@ -4189,9 +4181,8 @@ dependencies = [
 
 [[package]]
 name = "waterui-controls"
-version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3083d791d2c88d0661a70c110e6bfec51bbbc07d6422db879ef85b4052915a35"
+version = "0.5.1"
+source = "git+https://github.com/water-rs/waterui?rev=b956632e0c4808707b9ab0e1d59e8af09c63fe8d#b956632e0c4808707b9ab0e1d59e8af09c63fe8d"
 dependencies = [
  "executor-core",
  "nami",
@@ -4205,9 +4196,8 @@ dependencies = [
 
 [[package]]
 name = "waterui-core"
-version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "22e29b3e6baa76a29481654f00fff598772ca914e3c57ab68a39a0dff3c82c8f"
+version = "0.5.1"
+source = "git+https://github.com/water-rs/waterui?rev=b956632e0c4808707b9ab0e1d59e8af09c63fe8d#b956632e0c4808707b9ab0e1d59e8af09c63fe8d"
 dependencies = [
  "anyhow",
  "nami",
@@ -4219,9 +4209,8 @@ dependencies = [
 
 [[package]]
 name = "waterui-form"
-version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8770235018152a03d88361537b10a5d6a03f7946b139459c2ae32b97bdcdbac0"
+version = "0.5.1"
+source = "git+https://github.com/water-rs/waterui?rev=b956632e0c4808707b9ab0e1d59e8af09c63fe8d#b956632e0c4808707b9ab0e1d59e8af09c63fe8d"
 dependencies = [
  "getrandom 0.4.3",
  "jiff",
@@ -4242,9 +4231,8 @@ dependencies = [
 
 [[package]]
 name = "waterui-graphics"
-version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e232848173152ac443afaf3bdce6a540dfa6faa22ce0b85175720bdcb2220b23"
+version = "0.5.1"
+source = "git+https://github.com/water-rs/waterui?rev=b956632e0c4808707b9ab0e1d59e8af09c63fe8d#b956632e0c4808707b9ab0e1d59e8af09c63fe8d"
 dependencies = [
  "ash",
  "bytemuck",
@@ -4279,9 +4267,8 @@ dependencies = [
 
 [[package]]
 name = "waterui-icon"
-version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "47be42fb7f2b15fbb713b310c2335f4ea0d7b178d46bae85c1d207ea053cca99"
+version = "0.5.1"
+source = "git+https://github.com/water-rs/waterui?rev=b956632e0c4808707b9ab0e1d59e8af09c63fe8d#b956632e0c4808707b9ab0e1d59e8af09c63fe8d"
 dependencies = [
  "suiteki",
  "waterui-core",
@@ -4291,9 +4278,8 @@ dependencies = [
 
 [[package]]
 name = "waterui-internal"
-version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "791cad65f7e4c65a0e65ad8483571a763824205355f3fcfb162b148b603813d1"
+version = "0.5.1"
+source = "git+https://github.com/water-rs/waterui?rev=b956632e0c4808707b9ab0e1d59e8af09c63fe8d#b956632e0c4808707b9ab0e1d59e8af09c63fe8d"
 dependencies = [
  "async-channel",
  "cpu-time",
@@ -4323,9 +4309,8 @@ dependencies = [
 
 [[package]]
 name = "waterui-layout"
-version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4e95478f34ed52482b229374c9dd495afcc191bb5e12d0bf565e3656f1d62657"
+version = "0.5.1"
+source = "git+https://github.com/water-rs/waterui?rev=b956632e0c4808707b9ab0e1d59e8af09c63fe8d#b956632e0c4808707b9ab0e1d59e8af09c63fe8d"
 dependencies = [
  "nami",
  "num-traits",
@@ -4336,9 +4321,8 @@ dependencies = [
 
 [[package]]
 name = "waterui-locale"
-version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3ceaf5a29b055d32a6197044cb9fa561e8d8c7342e1e759b9cb3afb7e6e6c9ed"
+version = "0.5.1"
+source = "git+https://github.com/water-rs/waterui?rev=b956632e0c4808707b9ab0e1d59e8af09c63fe8d#b956632e0c4808707b9ab0e1d59e8af09c63fe8d"
 dependencies = [
  "fixed_decimal",
  "iana-time-zone",
@@ -4364,9 +4348,8 @@ dependencies = [
 
 [[package]]
 name = "waterui-macros"
-version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0689ec938097a253a67db3a5f7192f05e66103b1c2fb625e814ed1231bd3b55c"
+version = "0.5.1"
+source = "git+https://github.com/water-rs/waterui?rev=b956632e0c4808707b9ab0e1d59e8af09c63fe8d#b956632e0c4808707b9ab0e1d59e8af09c63fe8d"
 dependencies = [
  "icu_locale_core",
  "icu_locid",
@@ -4380,9 +4363,8 @@ dependencies = [
 
 [[package]]
 name = "waterui-navigation"
-version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "32f6578f0b357ed2f38921d827750f9879379fbcf46d17e9d2618e9f244eb79b"
+version = "0.5.1"
+source = "git+https://github.com/water-rs/waterui?rev=b956632e0c4808707b9ab0e1d59e8af09c63fe8d#b956632e0c4808707b9ab0e1d59e8af09c63fe8d"
 dependencies = [
  "nami",
  "waterui-controls",
@@ -4395,9 +4377,8 @@ dependencies = [
 
 [[package]]
 name = "waterui-shape"
-version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ef5306d7363c4cd214b6fd35ca748a300c0732b0535c3e0ac24e2c96d64abacc"
+version = "0.5.1"
+source = "git+https://github.com/water-rs/waterui?rev=b956632e0c4808707b9ab0e1d59e8af09c63fe8d#b956632e0c4808707b9ab0e1d59e8af09c63fe8d"
 dependencies = [
  "bytemuck",
  "nami",
@@ -4410,9 +4391,8 @@ dependencies = [
 
 [[package]]
 name = "waterui-text"
-version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "be7cac43f66c103bd16226dd70537bf4420bf003b9e8631765cbeaca3d2e5c53"
+version = "0.5.1"
+source = "git+https://github.com/water-rs/waterui?rev=b956632e0c4808707b9ab0e1d59e8af09c63fe8d#b956632e0c4808707b9ab0e1d59e8af09c63fe8d"
 dependencies = [
  "android_clipboard",
  "arboard",
@@ -4434,9 +4414,8 @@ dependencies = [
 
 [[package]]
 name = "waterui-url"
-version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "02a8c212fb02d4020a9ffcc709597ccd738e9f321c89b51236ffddeca659c994"
+version = "0.5.1"
+source = "git+https://github.com/water-rs/waterui?rev=b956632e0c4808707b9ab0e1d59e8af09c63fe8d#b956632e0c4808707b9ab0e1d59e8af09c63fe8d"
 dependencies = [
  "base64",
  "nami-core",
@@ -4445,9 +4424,8 @@ dependencies = [
 
 [[package]]
 name = "waterui-video"
-version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "18ba7ce9043514f866892deb0d2cb664f4c56e90dccd88242453f78c659da2a4"
+version = "0.5.1"
+source = "git+https://github.com/water-rs/waterui?rev=b956632e0c4808707b9ab0e1d59e8af09c63fe8d#b956632e0c4808707b9ab0e1d59e8af09c63fe8d"
 dependencies = [
  "nami",
  "thiserror 2.0.20",
@@ -4783,7 +4761,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

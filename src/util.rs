@@ -55,7 +55,7 @@ where
     S: Signal,
 {
     let guard = signal.watch(watcher);
-    (signal.get(), guard)
+    (signal.snapshot(), guard)
 }
 
 /// Private COM marker interface used to round-trip [`ElementAttachments`]
@@ -292,7 +292,7 @@ pub fn render_subviews(
 /// Used by containers that need all children up-front (`FixedContainer`).
 /// Lazy collections get their own rendering path.
 pub fn materialize_views<V: Views>(views: &V) -> Vec<V::View> {
-    (0..views.len().get())
+    (0..views.len().snapshot())
         .filter_map(|index| views.get_view(index))
         .collect()
 }

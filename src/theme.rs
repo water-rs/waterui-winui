@@ -7,7 +7,7 @@
 //! `ThemeResource`s XAML controls bind to — so user-supplied theme packs stay
 //! authoritative.
 
-use nami::{Binding, SignalExt, binding};
+use nami::{Binding, Signal, SignalExt, binding};
 use waterui::theme::color::{
     Accent, AccentContainer, AccentForeground, Background, Border, Error, ErrorForeground,
     Foreground, MutedForeground, SelectionContainer, SelectionForeground, Surface, SurfaceVariant,
@@ -166,23 +166,25 @@ impl ThemeSignals {
     fn refresh(&self, root: &FrameworkElement) {
         let resources = theme_resources().expect("Application resources on theme change");
         let fresh = Self::read(&resources);
-        self.background.set(fresh.background.get());
-        self.surface.set(fresh.surface.get());
-        self.surface_variant.set(fresh.surface_variant.get());
-        self.border.set(fresh.border.get());
-        self.foreground.set(fresh.foreground.get());
-        self.muted_foreground.set(fresh.muted_foreground.get());
-        self.accent.set(fresh.accent.get());
-        self.accent_container.set(fresh.accent_container.get());
-        self.accent_foreground.set(fresh.accent_foreground.get());
-        self.tertiary.set(fresh.tertiary.get());
-        self.tertiary_container.set(fresh.tertiary_container.get());
+        self.background.set(fresh.background.snapshot());
+        self.surface.set(fresh.surface.snapshot());
+        self.surface_variant.set(fresh.surface_variant.snapshot());
+        self.border.set(fresh.border.snapshot());
+        self.foreground.set(fresh.foreground.snapshot());
+        self.muted_foreground.set(fresh.muted_foreground.snapshot());
+        self.accent.set(fresh.accent.snapshot());
+        self.accent_container.set(fresh.accent_container.snapshot());
+        self.accent_foreground
+            .set(fresh.accent_foreground.snapshot());
+        self.tertiary.set(fresh.tertiary.snapshot());
+        self.tertiary_container
+            .set(fresh.tertiary_container.snapshot());
         self.selection_container
-            .set(fresh.selection_container.get());
+            .set(fresh.selection_container.snapshot());
         self.selection_foreground
-            .set(fresh.selection_foreground.get());
-        self.error.set(fresh.error.get());
-        self.error_foreground.set(fresh.error_foreground.get());
+            .set(fresh.selection_foreground.snapshot());
+        self.error.set(fresh.error.snapshot());
+        self.error_foreground.set(fresh.error_foreground.snapshot());
         self.color_scheme.set(scheme_of(root));
     }
 }

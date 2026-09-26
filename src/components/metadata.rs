@@ -987,7 +987,7 @@ fn register_context_menu(dispatcher: &mut ViewDispatcher<(), RenderContext, UIEl
                 .expect("DispatcherQueue::GetForCurrentThread");
             crate::components::menus::rebuild_flyout(
                 &flyout,
-                &metadata.value.items.get(),
+                &metadata.value.items.snapshot(),
                 env,
                 &queue,
             );
@@ -1026,7 +1026,7 @@ fn register_drag_drop(dispatcher: &mut ViewDispatcher<(), RenderContext, UIEleme
                 .DragStarting(move |_sender, args| {
                     let Ok(args) = args.ok() else { return };
                     let package = args.Data().expect("DragStartingEventArgs::Data");
-                    match data.get() {
+                    match data.snapshot() {
                         DragData::Text(text) => package
                             .SetText(text.as_str())
                             .expect("DataPackage::SetText"),

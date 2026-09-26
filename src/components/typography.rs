@@ -45,7 +45,7 @@ impl WinUiComponent for Native<TextConfig> {
             let weak = weak.clone();
             let queue = queue.clone();
             let env = env_for_watch.clone();
-            let alignment = alignment_signal.get();
+            let alignment = alignment_signal.snapshot();
             enqueue_on_ui_thread(&queue, move || {
                 if let Some(block) = weak.upgrade() {
                     apply_styled_content(&block, &content, alignment, &env);
@@ -55,8 +55,8 @@ impl WinUiComponent for Native<TextConfig> {
 
         apply_styled_content(
             &block,
-            &config.content.get(),
-            config.paragraph_alignment.get(),
+            &config.content.snapshot(),
+            config.paragraph_alignment.snapshot(),
             env,
         );
 
@@ -110,7 +110,7 @@ fn apply_styled_content(
 fn apply_style(run: &Run, style: &Style, env: &Environment) {
     // Font and foreground setters live on `ITextElement`, not `Run`.
     let text = run.cast::<ITextElement>().expect("Run is a TextElement");
-    let resolved: ResolvedFont = style.font.resolve(env).get();
+    let resolved: ResolvedFont = style.font.resolve(env).snapshot();
     text.SetFontSize(f64::from(resolved.size.max(1.0)))
         .expect("TextElement::SetFontSize");
     text.SetFontWeight(WinUiFontWeight {
@@ -139,7 +139,7 @@ fn apply_style(run: &Run, style: &Style, env: &Environment) {
             .expect("TextElement::SetTextDecorations");
     }
     if let Some(foreground) = &style.foreground {
-        let resolved = foreground.resolve(env).get();
+        let resolved = foreground.resolve(env).snapshot();
         let brush = solid_brush(&resolved).expect("SolidColorBrush");
         text.SetForeground(&brush)
             .expect("TextElement::SetForeground");

@@ -89,7 +89,7 @@ impl WinUiComponent for Native<ListConfig> {
             )
             .expect("ItemsRepeater::SetItemTemplate");
         repeater
-            .SetItemsSource(&index_vector(contents.len().get()))
+            .SetItemsSource(&index_vector(contents.len().snapshot()))
             .expect("ItemsRepeater::SetItemsSource");
 
         // Reactive refresh: a changed collection swaps the items source and
@@ -118,7 +118,7 @@ impl WinUiComponent for Native<ListConfig> {
             let queue = renderer.executor().queue().clone();
             let weak = repeater.downgrade().expect("weak ref");
             guards.push(controller.generation().watch(move |_| {
-                let index = target.get();
+                let index = target.snapshot();
                 let weak = weak.clone();
                 let queue = queue.clone();
                 enqueue_on_ui_thread(&queue, move || {
@@ -195,7 +195,9 @@ fn tab_header(
 
     let badge_element = badge.map(|badge| {
         let element = InfoBadge::new().expect("InfoBadge::new");
-        element.SetValue(badge.get()).expect("InfoBadge::SetValue");
+        element
+            .SetValue(badge.snapshot())
+            .expect("InfoBadge::SetValue");
         let weak = element.downgrade().expect("weak ref");
         let queue = queue.clone();
         guards.push(badge.watch(move |ctx| {
@@ -271,7 +273,7 @@ fn render_tab_view(
             .expect("ContentControl::SetContent");
         item.cast::<Control>()
             .expect("TabViewItem is a Control")
-            .SetIsEnabled(tab.enabled.get())
+            .SetIsEnabled(tab.enabled.snapshot())
             .expect("Control::SetIsEnabled");
         items.push(
             item.cast::<windows_core::IInspectable>()
@@ -300,7 +302,7 @@ fn render_tab_view(
         .SetVerticalAlignment(VerticalAlignment::Stretch)
         .expect("SetVerticalAlignment");
 
-    if let Some(index) = ids.iter().position(|id| *id == layout.selection.get()) {
+    if let Some(index) = ids.iter().position(|id| *id == layout.selection.snapshot()) {
         // Selection must go through `SelectedItem`: on an `ItemsSource`-bound
         // list `SelectedIndex` cannot push into the `ListView` before its
         // containers exist, so the item stays unselected and content blank.
@@ -323,7 +325,7 @@ fn render_tab_view(
                     .as_slice()
                     .get(usize::try_from(index).expect("index non-negative"))
                     .copied()
-                && selection.get() != id
+                && selection.snapshot() != id
             {
                 selection.set(id);
             }
@@ -398,7 +400,7 @@ fn render_sidebar_tabs(
             .expect("ContentControl::SetContent");
         item.cast::<Control>()
             .expect("NavigationViewItem is a Control")
-            .SetIsEnabled(tab.enabled.get())
+            .SetIsEnabled(tab.enabled.snapshot())
             .expect("Control::SetIsEnabled");
         menu_items
             .Append(
@@ -423,7 +425,7 @@ fn render_sidebar_tabs(
         })
     };
 
-    if let Some(index) = ids.iter().position(|id| *id == layout.selection.get()) {
+    if let Some(index) = ids.iter().position(|id| *id == layout.selection.snapshot()) {
         let selected = menu_items
             .GetAt(u32::try_from(index).expect("tab index fits u32"))
             .expect("IVector::GetAt");
@@ -454,7 +456,7 @@ fn render_sidebar_tabs(
                 let index = index as usize;
                 show_for_event(index);
                 if let Some(id) = ids_for_event.as_slice().get(index).copied()
-                    && selection.get() != id
+                    && selection.snapshot() != id
                 {
                     selection.set(id);
                 }
