@@ -56,8 +56,12 @@ pub fn run_app(make_app: impl FnOnce() -> App) -> windows_core::Result<()> {
     let deferred = DeferredDispatcherExecutor::new();
     let _ = executor_core::try_init_global_executor(native_executor::NativeExecutor::new());
     let _ = executor_core::try_init_local_executor(
+        // The executor's frame budget paces at the headless rate: at app start
+        // no swap chain exists yet to ask DXGI for the monitor's real rate,
+        // and `CompositionTarget::Rendering` vsyncs the renderer anyway.
         waterui::task::monitored_local_executor_with_probes(
             deferred.clone(),
+            waterui::task::RefreshRate::HEADLESS,
             None::<std::sync::Arc<dyn waterui::task::RuntimeProbe>>,
         ),
     );

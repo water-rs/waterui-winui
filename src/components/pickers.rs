@@ -81,7 +81,7 @@ fn item_element(item: &PickerItem<Id>, env: &Environment) -> TextBlock {
         .content
         .resolve(env)
         .content
-        .get()
+        .snapshot()
         .to_plain()
         .to_string();
     let block = TextBlock::new().expect("TextBlock::new");
@@ -111,7 +111,7 @@ impl WinUiComponent for Native<PickerConfig> {
             .label
             .resolve(env)
             .accessibility_label()
-            .get()
+            .snapshot()
             .to_plain()
             .to_string();
         AutomationProperties::SetName(&framework(&element), accessibility.as_str())
@@ -147,7 +147,7 @@ fn render_combo_box(
                 .expect("ItemCollection::Append");
         }
         *ids.borrow_mut() = list.iter().map(|item| item.tag).collect();
-        let current = config.selection.get();
+        let current = config.selection.snapshot();
         let index = ids
             .borrow()
             .iter()
@@ -159,7 +159,7 @@ fn render_combo_box(
             .SetSelectedIndex(index)
             .expect("Selector::SetSelectedIndex");
     };
-    install_items(&config.items.get());
+    install_items(&config.items.snapshot());
 
     // native -> binding
     let selection = config.selection.clone();
@@ -184,7 +184,7 @@ fn render_combo_box(
                     .as_slice()
                     .get(usize::try_from(index).expect("index non-negative"))
                     .copied()
-                && selection.get() != id
+                && selection.snapshot() != id
             {
                 selection.set(id);
             }
@@ -289,7 +289,7 @@ fn render_radio_buttons(
                 .expect("ItemCollection::Append");
         }
         *ids.borrow_mut() = list.iter().map(|item| item.tag).collect();
-        let current = config.selection.get();
+        let current = config.selection.snapshot();
         let index = ids
             .borrow()
             .iter()
@@ -299,7 +299,7 @@ fn render_radio_buttons(
             .SetSelectedIndex(index)
             .expect("RadioButtons::SetSelectedIndex");
     };
-    install_items(&config.items.get());
+    install_items(&config.items.snapshot());
 
     let selection = config.selection.clone();
     let ids_for_event = ids.clone();
@@ -317,7 +317,7 @@ fn render_radio_buttons(
                     .as_slice()
                     .get(usize::try_from(index).expect("index non-negative"))
                     .copied()
-                && selection.get() != id
+                && selection.snapshot() != id
             {
                 selection.set(id);
             }
@@ -373,7 +373,7 @@ fn render_selector_bar(
                 .content
                 .resolve(env)
                 .content
-                .get()
+                .snapshot()
                 .to_plain()
                 .to_string();
             entry
@@ -382,7 +382,7 @@ fn render_selector_bar(
             items_collection.Append(&entry).expect("IVector::Append");
         }
         *ids.borrow_mut() = list.iter().map(|item| item.tag).collect();
-        let current = config.selection.get();
+        let current = config.selection.snapshot();
         if let Some(index) = ids.borrow().iter().position(|id| *id == current) {
             let selected = items_collection
                 .GetAt(u32::try_from(index).expect("index fits u32"))
@@ -391,7 +391,7 @@ fn render_selector_bar(
                 .expect("SelectorBar::SetSelectedItem");
         }
     };
-    install_items(&config.items.get());
+    install_items(&config.items.snapshot());
 
     let selection = config.selection.clone();
     let ids_for_event = ids.clone();
@@ -412,7 +412,7 @@ fn render_selector_bar(
             let ids_ref = ids_for_event.borrow();
             if let Some(index) = found
                 && let Some(id) = ids_ref.as_slice().get(index).copied()
-                && selection.get() != id
+                && selection.snapshot() != id
             {
                 selection.set(id);
             }
@@ -476,7 +476,7 @@ impl WinUiComponent for Native<DatePickerConfig> {
 
         let date_picker = CalendarDatePicker::new().expect("CalendarDatePicker::new");
         date_picker
-            .SetDate(Some(to_winrt_datetime(config.value.get())))
+            .SetDate(Some(to_winrt_datetime(config.value.snapshot())))
             .expect("CalendarDatePicker::SetDate");
         date_picker
             .SetMinDate(to_winrt_datetime(*config.range.start()))
@@ -494,7 +494,7 @@ impl WinUiComponent for Native<DatePickerConfig> {
                 .DateChanged(move |_sender, args| {
                     let args = args.ok().expect("DateChanged args");
                     let new_date = args.NewDate().expect("DateChangedEventArgs::NewDate");
-                    let current = value.get();
+                    let current = value.snapshot();
                     let time = current.time();
                     let date = from_winrt_datetime(new_date).date();
                     value.set(date.at(
@@ -532,7 +532,7 @@ impl WinUiComponent for Native<DatePickerConfig> {
 
         if wants_time {
             let time_picker = TimePicker::new().expect("TimePicker::new");
-            let current = config.value.get().time();
+            let current = config.value.snapshot().time();
             time_picker
                 .SetSelectedTime(Some(windows_time::TimeSpan {
                     duration: (i64::from(current.hour()) * 3600
@@ -553,7 +553,7 @@ impl WinUiComponent for Native<DatePickerConfig> {
                         let minute =
                             i8::try_from((total_seconds % 3600) / 60).expect("minute fits i8");
                         let second = i8::try_from(total_seconds % 60).expect("second fits i8");
-                        let current = value.get();
+                        let current = value.snapshot();
                         value.set(current.date().at(hour, minute, second, 0));
                     })
                     .expect("TimePicker::SelectedTimeChanged"),
@@ -634,7 +634,7 @@ impl WinUiComponent for Native<MultiDatePickerConfig> {
                 .SelectedDates()
                 .expect("CalendarView::SelectedDates"),
         );
-        for date in config.value.get() {
+        for date in config.value.snapshot() {
             selected
                 .Append(to_winrt_date(date))
                 .expect("IVector<DateTime>::Append");
@@ -716,7 +716,7 @@ impl WinUiComponent for Native<ColorPickerConfig> {
         picker
             .SetIsAlphaEnabled(config.support_alpha)
             .expect("ColorPicker::SetIsAlphaEnabled");
-        let initial = config.value.get().resolve(env).get();
+        let initial = config.value.snapshot().resolve(env).snapshot();
         picker
             .SetColor(resolved_color_to_winui(&initial))
             .expect("ColorPicker::SetColor");
@@ -784,7 +784,7 @@ impl WinUiComponent for Native<ColorPickerConfig> {
         let env_for_watch = env.clone();
         guards.push(
             subscribe_then_get(&config.value, move |ctx| {
-                let color = ctx.into_value().resolve(&env_for_watch).get();
+                let color = ctx.into_value().resolve(&env_for_watch).snapshot();
                 let weak_picker = weak_picker.clone();
                 let weak_swatch = weak_swatch.clone();
                 let queue = queue.clone();

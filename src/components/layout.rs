@@ -119,7 +119,7 @@ impl WinUiComponent for Native<ScrollView> {
             let generation = controller.generation();
             let target = controller.target();
             let guard = generation.watch(move |_| {
-                let target = target.get();
+                let target = target.snapshot();
                 let weak = weak.clone();
                 let queue = queue.clone();
                 enqueue_on_ui_thread(&queue, move || {

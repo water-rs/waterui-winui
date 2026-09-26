@@ -104,7 +104,7 @@ fn render_toggle_switch(
 
     let binding = config.toggle;
     switch
-        .SetIsOn(binding.get())
+        .SetIsOn(binding.snapshot())
         .expect("ToggleSwitch::SetIsOn");
 
     let queue = renderer.executor().queue().clone();
@@ -153,7 +153,7 @@ fn render_checkbox(
     let binding = config.toggle;
     let toggle: ToggleButton = checkbox.cast().expect("CheckBox is a ToggleButton");
     toggle
-        .SetIsChecked(Some(binding.get()))
+        .SetIsChecked(Some(binding.snapshot()))
         .expect("ToggleButton::SetIsChecked");
 
     let queue = renderer.executor().queue().clone();
@@ -207,7 +207,9 @@ impl WinUiComponent for Native<SliderConfig> {
             .expect("RangeBase::SetMaximum");
 
         let binding = config.value;
-        range.SetValue(binding.get()).expect("RangeBase::SetValue");
+        range
+            .SetValue(binding.snapshot())
+            .expect("RangeBase::SetValue");
 
         let queue = renderer.executor().queue().clone();
         let weak = range.downgrade().expect("RangeBase supports weak refs");
@@ -230,8 +232,10 @@ impl WinUiComponent for Native<SliderConfig> {
         let revoker = range
             .ValueChanged(move |_, args| {
                 if let Ok(args) = args.ok() {
-                    let value = args.NewValue().unwrap_or_else(|_| binding_for_event.get());
-                    if (binding_for_event.get() - value).abs() > f64::EPSILON {
+                    let value = args
+                        .NewValue()
+                        .unwrap_or_else(|_| binding_for_event.snapshot());
+                    if (binding_for_event.snapshot() - value).abs() > f64::EPSILON {
                         binding_for_event.set(value);
                     }
                 }
@@ -281,7 +285,7 @@ impl WinUiComponent for Native<ResolvedTextFieldConfig> {
 
         let textbox = TextBox::new().expect("TextBox::new");
         textbox
-            .SetPlaceholderText(config.prompt.content.get().to_plain().as_str())
+            .SetPlaceholderText(config.prompt.content.snapshot().to_plain().as_str())
             .expect("TextBox::SetPlaceholderText");
         if config.line_limit.is_none() {
             textbox
@@ -291,7 +295,7 @@ impl WinUiComponent for Native<ResolvedTextFieldConfig> {
 
         let binding = config.value;
         textbox
-            .SetText(binding.get().to_plain().as_str())
+            .SetText(binding.snapshot().to_plain().as_str())
             .expect("TextBox::SetText");
 
         let queue = renderer.executor().queue().clone();
@@ -331,7 +335,7 @@ impl WinUiComponent for Native<ResolvedTextFieldConfig> {
                 if let Ok(sender) = sender.ok()
                     && let Ok(textbox) = sender.cast::<TextBox>()
                     && let Ok(text) = textbox.Text()
-                    && text != binding_for_event.get().to_plain()
+                    && text != binding_for_event.snapshot().to_plain()
                 {
                     binding_for_event.set(StyledStr::plain(text));
                 }
@@ -365,7 +369,7 @@ impl WinUiComponent for Native<SecureFieldConfig> {
 
         let password = PasswordBox::new().expect("PasswordBox::new");
         password
-            .SetPassword(config.value.get().expose())
+            .SetPassword(config.value.snapshot().expose())
             .expect("PasswordBox::SetPassword");
         password
             .SetPasswordRevealMode(PasswordRevealMode::Peek)
@@ -442,12 +446,12 @@ impl WinUiComponent for Native<StepperConfig> {
             .SetMaximum(f64::from(*config.range.end()))
             .expect("NumberBox::SetMaximum");
         number
-            .SetSmallChange(f64::from(config.step.get()))
+            .SetSmallChange(f64::from(config.step.snapshot()))
             .expect("NumberBox::SetSmallChange");
 
         let binding = config.value;
         number
-            .SetValue(f64::from(binding.get()))
+            .SetValue(f64::from(binding.snapshot()))
             .expect("NumberBox::SetValue");
 
         let queue = renderer.executor().queue().clone();

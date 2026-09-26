@@ -329,7 +329,7 @@ impl VideoCoordinator {
         if let Ok(list) = item.AudioTracks()
             && let Ok(list) = list.cast::<ISingleSelectMediaTrackList>()
         {
-            match self.audio_track_selection.get() {
+            match self.audio_track_selection.snapshot() {
                 AudioTrackSelection::Auto => {}
                 AudioTrackSelection::Track(index) => {
                     let _ = list.SetSelectedIndex(selected(index));
@@ -339,7 +339,7 @@ impl VideoCoordinator {
         if let Ok(list) = item.VideoTracks()
             && let Ok(list) = list.cast::<ISingleSelectMediaTrackList>()
         {
-            match self.video_track_selection.get() {
+            match self.video_track_selection.snapshot() {
                 // `-1` hands rendition selection back to the adaptive engine.
                 VideoTrackSelection::Auto => {
                     let _ = list.SetSelectedIndex(-1);
@@ -353,7 +353,7 @@ impl VideoCoordinator {
             && let Ok(list) = tracks.cast::<IMediaPlaybackTimedMetadataTrackList>()
         {
             let count = tracks.Size().unwrap_or(0);
-            match self.subtitle_selection.get() {
+            match self.subtitle_selection.snapshot() {
                 SubtitleSelection::Auto => {}
                 SubtitleSelection::Off => {
                     for index in 0..count {
@@ -410,7 +410,7 @@ impl VideoCoordinator {
     /// Pushes `has_next` / `has_previous` into the system transport controls
     /// and the command manager so OS-level next/previous commands engage.
     fn update_navigation(&self) {
-        let (next, previous) = (self.has_next.get(), self.has_previous.get());
+        let (next, previous) = (self.has_next.snapshot(), self.has_previous.snapshot());
         if let Ok(smtc) = self.system_media_transport_controls() {
             let _ = smtc.SetIsNextEnabled(next);
             let _ = smtc.SetIsPreviousEnabled(previous);
@@ -434,13 +434,13 @@ impl VideoCoordinator {
     }
 
     fn update_repeat(&self) {
-        let looping = self.loops || self.repeat.get() == RepeatMode::One;
+        let looping = self.loops || self.repeat.snapshot() == RepeatMode::One;
         let _ = self.player.SetIsLoopingEnabled(looping);
         if let Ok(smtc) = self
             .system_media_transport_controls()
             .and_then(|s| s.cast::<ISystemMediaTransportControls2>())
         {
-            let mode = match self.repeat.get() {
+            let mode = match self.repeat.snapshot() {
                 RepeatMode::Off => MediaPlaybackAutoRepeatMode::None,
                 RepeatMode::One => MediaPlaybackAutoRepeatMode::Track,
                 RepeatMode::All => MediaPlaybackAutoRepeatMode::List,
@@ -597,7 +597,7 @@ impl VideoCoordinator {
                         .expect("MediaPlaybackItem is IMediaPlaybackSource"),
                 )
             });
-        if this.desired_playing.get() {
+        if this.desired_playing.snapshot() {
             let _ = this.player.Play();
         }
     }
@@ -907,7 +907,7 @@ impl VideoCoordinator {
                         this.emit(Event::Ended);
                         // `One` loops inside the pipeline; `All` advances through
                         // the controller, which wraps at the end.
-                        if this.repeat.get() != RepeatMode::One && this.has_next.get() {
+                        if this.repeat.snapshot() != RepeatMode::One && this.has_next.snapshot() {
                             let _ = this.controller.next();
                         }
                     },
@@ -1105,7 +1105,7 @@ impl VideoCoordinator {
             watch(&this.seek_generation, this, |this, _| {
                 let _ = this
                     .session
-                    .SetPosition(seconds_timespan(this.seek_target_seconds.get()));
+                    .SetPosition(seconds_timespan(this.seek_target_seconds.snapshot()));
             })
             .1,
         );

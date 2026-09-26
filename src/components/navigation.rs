@@ -432,7 +432,7 @@ impl WinUiComponent for NavigationSplitLayout {
         nav.SetOpenPaneLength(f64::from(sidebar_width.ideal()))
             .expect("SetOpenPaneLength");
         nav.SetIsPaneOpen(matches!(
-            column_visibility.get(),
+            column_visibility.snapshot(),
             NavigationSplitColumnVisibility::Automatic
                 | NavigationSplitColumnVisibility::All
                 | NavigationSplitColumnVisibility::DoubleColumn
@@ -456,7 +456,7 @@ impl WinUiComponent for NavigationSplitLayout {
         nav.cast::<ContentControl>()
             .expect("ContentControl")
             .SetContent(
-                &detail_for(primary_selection.get())
+                &detail_for(primary_selection.snapshot())
                     .cast::<IInspectable>()
                     .expect("IInspectable"),
             )
