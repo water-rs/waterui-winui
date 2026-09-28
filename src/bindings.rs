@@ -13763,11 +13763,37 @@ impl IDataPackage {
             .ok()
         }
     }
+    pub(crate) fn SetData<P1>(&self, formatid: &str, value: P1) -> windows_core::Result<()>
+    where
+        P1: windows_core::Param<windows_core::IInspectable>,
+    {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetData)(
+                windows_core::Interface::as_raw(self),
+                core::mem::transmute_copy(&windows_core::HSTRING::from(formatid)),
+                value.param().abi(),
+            )
+            .ok()
+        }
+    }
     pub(crate) fn SetText(&self, value: &str) -> windows_core::Result<()> {
         unsafe {
             (windows_core::Interface::vtable(self).SetText)(
                 windows_core::Interface::as_raw(self),
                 core::mem::transmute_copy(&windows_core::HSTRING::from(value)),
+            )
+            .ok()
+        }
+    }
+    pub(crate) fn SetStorageItems<P0>(&self, value: P0, readonly: bool) -> windows_core::Result<()>
+    where
+        P0: windows_core::Param<windows_collections::IIterable<IStorageItem>>,
+    {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetStorageItems)(
+                windows_core::Interface::as_raw(self),
+                value.param().abi(),
+                readonly,
             )
             .ok()
         }
@@ -13787,11 +13813,26 @@ pub struct IDataPackage_Vtbl {
     RemoveOperationCompleted: usize,
     Destroyed: usize,
     RemoveDestroyed: usize,
-    SetData: usize,
+    pub SetData: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
     SetDataProvider: usize,
     pub SetText: unsafe extern "system" fn(
         *mut core::ffi::c_void,
         *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
+    SetUri: usize,
+    SetHtmlFormat: usize,
+    ResourceMap: usize,
+    SetRtf: usize,
+    SetBitmap: usize,
+    SetStorageItemsReadOnly: usize,
+    pub SetStorageItems: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
+        bool,
     ) -> windows_core::HRESULT,
 }
 windows_core::imp::define_interface!(
@@ -29208,6 +29249,48 @@ pub struct IStackPanelStatics_Vtbl {
     ) -> windows_core::HRESULT,
 }
 windows_core::imp::define_interface!(
+    IStandardDataFormatsStatics,
+    IStandardDataFormatsStatics_Vtbl,
+    0x7ed681a1_a880_40c9_b4ed_0bee1e15f549
+);
+impl windows_core::RuntimeType for IStandardDataFormatsStatics {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct IStandardDataFormatsStatics_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    pub Text: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
+    Uri: usize,
+    Html: usize,
+    Rtf: usize,
+    Bitmap: usize,
+    pub StorageItems: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(
+    IStandardDataFormatsStatics2,
+    IStandardDataFormatsStatics2_Vtbl,
+    0x42a254f4_9d76_42e8_861b_47c25dd0cf71
+);
+impl windows_core::RuntimeType for IStandardDataFormatsStatics2 {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct IStandardDataFormatsStatics2_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    pub WebLink: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(
     IStorageFile,
     IStorageFile_Vtbl,
     0xfa3f6186_4214_428c_a64c_14c9ac7315ea
@@ -35072,9 +35155,28 @@ impl windows_core::RuntimeType for IUriRuntimeClass {
     const SIGNATURE: windows_core::imp::ConstBuffer =
         windows_core::imp::ConstBuffer::for_interface::<Self>();
 }
+impl IUriRuntimeClass {
+    pub(crate) fn AbsoluteUri(&self) -> windows_core::Result<String> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).AbsoluteUri)(
+                windows_core::Interface::as_raw(self),
+                &mut result__,
+            )
+            .map(|| {
+                let hstring: windows_core::HSTRING = core::mem::transmute(result__);
+                hstring.to_string_lossy()
+            })
+        }
+    }
+}
 #[repr(C)]
 pub struct IUriRuntimeClass_Vtbl {
     pub base__: windows_core::IInspectable_Vtbl,
+    pub AbsoluteUri: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut *mut core::ffi::c_void,
+    ) -> windows_core::HRESULT,
 }
 windows_core::imp::define_interface!(
     IUriRuntimeClassFactory,
@@ -45340,6 +45442,71 @@ impl windows_core::RuntimeName for StackPanel {
 unsafe impl Send for StackPanel {}
 unsafe impl Sync for StackPanel {}
 pub struct StandardDataFormats;
+impl StandardDataFormats {
+    pub(crate) fn Text() -> windows_core::Result<String> {
+        Self::IStandardDataFormatsStatics(|this| unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(this).Text)(
+                windows_core::Interface::as_raw(this),
+                &mut result__,
+            )
+            .map(|| {
+                let hstring: windows_core::HSTRING = core::mem::transmute(result__);
+                hstring.to_string_lossy()
+            })
+        })
+    }
+    pub(crate) fn StorageItems() -> windows_core::Result<String> {
+        Self::IStandardDataFormatsStatics(|this| unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(this).StorageItems)(
+                windows_core::Interface::as_raw(this),
+                &mut result__,
+            )
+            .map(|| {
+                let hstring: windows_core::HSTRING = core::mem::transmute(result__);
+                hstring.to_string_lossy()
+            })
+        })
+    }
+    pub(crate) fn WebLink() -> windows_core::Result<String> {
+        Self::IStandardDataFormatsStatics2(|this| unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(this).WebLink)(
+                windows_core::Interface::as_raw(this),
+                &mut result__,
+            )
+            .map(|| {
+                let hstring: windows_core::HSTRING = core::mem::transmute(result__);
+                hstring.to_string_lossy()
+            })
+        })
+    }
+    fn IStandardDataFormatsStatics<
+        R,
+        F: FnOnce(&IStandardDataFormatsStatics) -> windows_core::Result<R>,
+    >(
+        callback: F,
+    ) -> windows_core::Result<R> {
+        static SHARED: windows_core::imp::FactoryCache<
+            StandardDataFormats,
+            IStandardDataFormatsStatics,
+        > = windows_core::imp::FactoryCache::new();
+        SHARED.call(callback)
+    }
+    fn IStandardDataFormatsStatics2<
+        R,
+        F: FnOnce(&IStandardDataFormatsStatics2) -> windows_core::Result<R>,
+    >(
+        callback: F,
+    ) -> windows_core::Result<R> {
+        static SHARED: windows_core::imp::FactoryCache<
+            StandardDataFormats,
+            IStandardDataFormatsStatics2,
+        > = windows_core::imp::FactoryCache::new();
+        SHARED.call(callback)
+    }
+}
 impl windows_core::RuntimeName for StandardDataFormats {
     const NAME: &'static str = "Windows.ApplicationModel.DataTransfer.StandardDataFormats";
 }

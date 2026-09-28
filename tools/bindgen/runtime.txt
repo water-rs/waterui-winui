@@ -201,7 +201,9 @@ Microsoft::UI::Xaml::Media::CompositeTransform
 Microsoft::UI::Xaml::{DragEventHandler, DragStartingEventArgs, DropCompletedEventArgs, DragUI, DragUIOverride, DragOperationDeferral, DragEventArgs}
 Microsoft::UI::Xaml::IUIElement::{add_ContextRequested, remove_ContextRequested, add_ContextCanceled, remove_ContextCanceled, add_DragStarting, remove_DragStarting, add_DropCompleted, remove_DropCompleted, put_CanDrag, put_ManipulationMode, add_ManipulationDelta, remove_ManipulationDelta, add_ManipulationStarted, remove_ManipulationStarted, add_ManipulationCompleted, remove_ManipulationCompleted, add_Tapped, remove_Tapped, add_DoubleTapped, remove_DoubleTapped, add_RightTapped, remove_RightTapped, add_Holding, remove_Holding, get_PointerCaptures}
 Windows::ApplicationModel::DataTransfer::{DataPackage, DataPackageView, StandardDataFormats, DataPackageOperation}
-Windows::ApplicationModel::DataTransfer::IDataPackage::{put_RequestedOperation, SetText}
+Windows::ApplicationModel::DataTransfer::IDataPackage::{put_RequestedOperation, SetText, SetData, SetStorageItems}
+Windows::ApplicationModel::DataTransfer::IStandardDataFormatsStatics::{get_Text, get_StorageItems}
+Windows::ApplicationModel::DataTransfer::IStandardDataFormatsStatics2::{get_WebLink}
 Microsoft::UI::Xaml::UIElement::{put_ProtectedCursor, put_Translation, put_Rotation, put_RotationAxis, put_CenterPoint, put_Shadow, get_CenterPoint}
 Microsoft::UI::Composition::{Compositor, DropShadow, SpriteVisual, InsetClip, CompositionGeometricClip, CompositionClip, Visual, CompositionShape, CompositionPathGeometry, CompositionPath, CompositionRoundedRectangleGeometry, CompositionRectangleGeometry, CompositionEllipseGeometry, CompositionLineGeometry, CompositionViewBox, ICompositionSurface, CompositionSurfaceBrush, CompositionBrush, CompositionColorBrush, CompositionEffectBrush, CompositionMaskBrush, CompositionBackdropBrush, CompositionNineGridBrush, CompositionEffectSourceParameter, CompositionScopedBatch, CompositionBatchTypes, CompositionEasingFunction, CubicBezierEasingFunction, LinearEasingFunction, SpringScalarNaturalMotionAnimation, SpringVector3NaturalMotionAnimation, ScalarKeyFrameAnimation, Vector3KeyFrameAnimation, ColorKeyFrameAnimation, ExpressionAnimation, ImplicitAnimationCollection, CompositionAnimationGroup, KeyFrameAnimation, CompositionAnimation, CompositionObject, CompositionPropertySet, VisualCollection, ContainerVisual, ShapeVisual, CompositionShapeCollection}
 Microsoft::UI::Xaml::Hosting::ElementCompositionPreview::{GetElementVisual, SetElementChildVisual, SetIsTranslationEnabled}
@@ -298,6 +300,7 @@ Microsoft::UI::Xaml::Controls::MediaPlayerElement::CreateInstance
 Microsoft::UI::Xaml::Media::Stretch
 Windows::Foundation::Uri
 Windows::Foundation::Uri::CreateUri
+Windows::Foundation::IUriRuntimeClass::get_AbsoluteUri
 Windows::Media::Core::AudioTrack
 Windows::Media::Core::VideoTrack
 Windows::Media::Core::TimedMetadataTrack

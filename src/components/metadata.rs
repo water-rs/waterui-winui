@@ -5,10 +5,13 @@
 //! guards and event revokers are pinned to the element through
 //! `FrameworkElement.Tag` (see [`crate::util`]).
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
+use executor_core::LocalExecutor;
 use nami::Signal;
+use waterui::Str;
+use waterui::Url;
 use waterui::accessibility::{
     AccessibilityChildren, AccessibilityHidden, AccessibilityIdentifier, AccessibilityLabel,
     AccessibilityRole, AccessibilityState, AccessibilityStateSignal,
@@ -17,7 +20,9 @@ use waterui::background::{Background, Material, MaterialBackground};
 use waterui::border::Border;
 use waterui::component::focus::Focused;
 use waterui::cursor::{Cursor, CursorStyle};
-use waterui::drag_drop::{DragData, Draggable, DropDestination};
+use waterui::drag_drop::{
+    DragPayload, Draggable, DropDestination, Files, PlatformRepresentation, TransferKind,
+};
 use waterui::filter::Opacity;
 use waterui::gesture::{
     Gesture, GestureObserver, GesturePhase, GesturePoint, MagnificationEvent, RotationEvent,
@@ -41,6 +46,7 @@ use windows_numerics::{Vector2, Vector3};
 
 #[allow(clippy::wildcard_imports)] // the generated namespace
 use crate::bindings::*;
+use crate::executor::DispatcherQueueExecutor;
 use crate::renderer::{RenderContext, WinUiRenderer};
 use crate::util::{
     framework, resolved_color_to_winui, solid_brush, store_event_revoker, store_retained,
@@ -1051,6 +1057,108 @@ fn register_context_menu(dispatcher: &mut ViewDispatcher<(), RenderContext, UIEl
     );
 }
 
+/// Data package format id announcing a drag that carries an in-process
+/// payload. The value itself never reaches the pasteboard; it travels through
+/// [`IN_PROCESS_DRAG`] instead.
+const IN_PROCESS_FORMAT: &str = "WaterUI.DragPayload.InProcess";
+
+thread_local! {
+    /// The payload of the in-process drag in flight on the UI thread.
+    ///
+    /// `WinUI` delivers every drag callback on the UI thread, so a thread-local
+    /// stash needs no synchronization and can hold the `!Send` payload.
+    static IN_PROCESS_DRAG: RefCell<Option<DragPayload>> = const { RefCell::new(None) };
+}
+
+/// The kind of payload the drag behind `view` carries, or `None` when the
+/// package holds nothing a `WaterUI` destination can receive.
+fn incoming_drag_kind(view: &DataPackageView) -> Option<TransferKind> {
+    if view.Contains(IN_PROCESS_FORMAT).unwrap_or(false) {
+        return IN_PROCESS_DRAG.with(|slot| slot.borrow().as_ref().map(DragPayload::kind));
+    }
+    for (format, kind) in [
+        (StandardDataFormats::StorageItems(), TransferKind::Files),
+        (StandardDataFormats::WebLink(), TransferKind::Url),
+        (StandardDataFormats::Text(), TransferKind::Text),
+    ] {
+        if format.is_ok_and(|id| view.Contains(&id).unwrap_or(false)) {
+            return Some(kind);
+        }
+    }
+    None
+}
+
+/// Resolves each file `Url` in `files` to a `StorageFile` and writes the set
+/// to the package, holding the drag open with the args' deferral.
+///
+/// `GetFileFromPathAsync` is awaited on the UI thread through `spawn_local`,
+/// so every `!Send` `WinRT` object involved stays on the thread that owns it.
+fn write_drag_files(
+    package: &DataPackage,
+    files: &Files,
+    args: &DragStartingEventArgs,
+    executor: &DispatcherQueueExecutor,
+) {
+    let paths: Vec<String> = files
+        .urls()
+        .iter()
+        .filter_map(Url::to_file_path)
+        .map(|path| path.to_string_lossy().into_owned())
+        .collect();
+    let deferral = args
+        .GetDeferral()
+        .expect("DragStartingEventArgs::GetDeferral");
+    let package = package.clone();
+    executor.spawn_local(async move {
+        let mut items = Vec::<IStorageItem>::new();
+        for path in &paths {
+            if let Ok(operation) = StorageFile::GetFileFromPathAsync(path)
+                && let Ok(file) = operation.await
+                && let Ok(item) = file.cast::<IStorageItem>()
+            {
+                items.push(item);
+            }
+        }
+        if !items.is_empty() {
+            // `IStorageItem`'s vector element type is `Option<IStorageItem>`
+            // (nullable interfaces box their default).
+            let iterable = windows_collections::IIterable::<IStorageItem>::from(
+                items.into_iter().map(Some).collect::<Vec<_>>(),
+            );
+            package
+                .SetStorageItems(&iterable, false)
+                .expect("DataPackage::SetStorageItems");
+        }
+        deferral
+            .Complete()
+            .expect("DragOperationDeferral::Complete");
+    });
+}
+
+/// Awaits `operation` on the UI thread, builds the payload, delivers it to
+/// `destination`, then completes the drop deferral.
+fn resolve_drop<T>(
+    operation: windows_future::IAsyncOperation<T>,
+    deferral: DragOperationDeferral,
+    executor: &DispatcherQueueExecutor,
+    destination: Rc<RefCell<DropDestination>>,
+    env: Environment,
+    build: impl FnOnce(&T) -> Option<DragPayload> + 'static,
+) where
+    T: windows_core::RuntimeType + 'static,
+{
+    executor.spawn_local(async move {
+        if let Ok(value) = operation.await
+            && let Some(payload) = build(&value)
+        {
+            destination.borrow_mut().deliver(payload, &env);
+        }
+        deferral
+            .Complete()
+            .expect("DragOperationDeferral::Complete");
+    });
+}
+
 /// `Metadata<Draggable>` / `Metadata<DropDestination>` — `WinUI` drag & drop.
 #[allow(clippy::too_many_lines)] // flat registration/wiring code
 fn register_drag_drop(dispatcher: &mut ViewDispatcher<(), RenderContext, UIElement>) {
@@ -1060,16 +1168,18 @@ fn register_drag_drop(dispatcher: &mut ViewDispatcher<(), RenderContext, UIEleme
             let element = renderer.render_any(metadata.content, env);
             let fe = framework(&element);
             element.SetCanDrag(true).expect("UIElement::SetCanDrag");
-            let data = metadata.value.data;
+            let draggable = metadata.value;
+            let executor = renderer.executor().clone();
             let revoker = element
                 .DragStarting(move |_sender, args| {
                     let Ok(args) = args.ok() else { return };
                     let package = args.Data().expect("DragStartingEventArgs::Data");
-                    match data.snapshot() {
-                        DragData::Text(text) => package
+                    let payload = draggable.payload();
+                    match payload.platform_representation() {
+                        PlatformRepresentation::Text(text) => package
                             .SetText(text.as_str())
                             .expect("DataPackage::SetText"),
-                        DragData::Url(url) => {
+                        PlatformRepresentation::Url(url) => {
                             let uri = Uri::CreateUri(url.as_str()).expect("Uri::CreateUri");
                             package
                                 .cast::<IDataPackage2>()
@@ -1077,10 +1187,27 @@ fn register_drag_drop(dispatcher: &mut ViewDispatcher<(), RenderContext, UIEleme
                                 .SetWebLink(&uri)
                                 .expect("IDataPackage2::SetWebLink");
                         }
-                        _ => panic!("unsupported DragData variant on WinUI backend"),
+                        PlatformRepresentation::Files(files) => {
+                            write_drag_files(&package, files, args, &executor);
+                        }
+                        PlatformRepresentation::InProcess => {
+                            let marker = PropertyValue::CreateString(IN_PROCESS_FORMAT)
+                                .expect("PropertyValue::CreateString");
+                            package
+                                .SetData(IN_PROCESS_FORMAT, &marker)
+                                .expect("DataPackage::SetData");
+                            IN_PROCESS_DRAG.with(|slot| *slot.borrow_mut() = Some(payload));
+                        }
                     }
                 })
                 .expect("UIElement::DragStarting");
+            store_event_revoker(&fe, revoker);
+            // The stash dies with the drag, not with the element.
+            let revoker = element
+                .DropCompleted(|_sender, _args| {
+                    IN_PROCESS_DRAG.with(|slot| slot.borrow_mut().take());
+                })
+                .expect("UIElement::DropCompleted");
             store_event_revoker(&fe, revoker);
             element
         },
@@ -1093,31 +1220,54 @@ fn register_drag_drop(dispatcher: &mut ViewDispatcher<(), RenderContext, UIEleme
             let fe = framework(&element);
             element.SetAllowDrop(true).expect("UIElement::SetAllowDrop");
 
-            let enter = metadata.value.on_enter.map(|h| Rc::new(RefCell::new(h)));
-            let exit = metadata.value.on_exit.map(|h| Rc::new(RefCell::new(h)));
-            let drop = Rc::new(RefCell::new(metadata.value.on_drop));
+            let destination = Rc::new(RefCell::new(metadata.value));
+            let entered = Rc::new(Cell::new(false));
+            let executor = renderer.executor().clone();
 
             {
                 let env = env.clone();
-                let enter = enter.clone();
+                let destination = destination.clone();
+                let entered = entered.clone();
                 let revoker = element
                     .DragEnter(move |_sender, args| {
                         let Ok(args) = args.ok() else { return };
+                        let view = args.DataView().expect("DragEventArgs::DataView");
+                        if incoming_drag_kind(&view) != Some(destination.borrow().accepted_kind()) {
+                            return;
+                        }
                         args.SetAcceptedOperation(DataPackageOperation::Copy)
                             .expect("DragEventArgs::SetAcceptedOperation");
-                        if let Some(handler) = &enter {
-                            (handler.borrow_mut())(&env);
-                        }
+                        destination.borrow_mut().enter(&env);
+                        entered.set(true);
                     })
                     .expect("UIElement::DragEnter");
                 store_event_revoker(&fe, revoker);
             }
             {
+                // `DragOver` fires continuously after `DragEnter`; re-asserting
+                // the accepted operation keeps `Drop` eligible on controls
+                // whose default handling would reset it to `None`.
+                let destination = destination.clone();
+                let revoker = element
+                    .DragOver(move |_sender, args| {
+                        let Ok(args) = args.ok() else { return };
+                        let view = args.DataView().expect("DragEventArgs::DataView");
+                        if incoming_drag_kind(&view) == Some(destination.borrow().accepted_kind()) {
+                            args.SetAcceptedOperation(DataPackageOperation::Copy)
+                                .expect("DragEventArgs::SetAcceptedOperation");
+                        }
+                    })
+                    .expect("UIElement::DragOver");
+                store_event_revoker(&fe, revoker);
+            }
+            {
                 let env = env.clone();
+                let destination = destination.clone();
+                let entered = entered.clone();
                 let revoker = element
                     .DragLeave(move |_sender, _args| {
-                        if let Some(handler) = &exit {
-                            (handler.borrow_mut())(&env);
+                        if entered.replace(false) {
+                            destination.borrow_mut().exit(&env);
                         }
                     })
                     .expect("UIElement::DragLeave");
@@ -1125,38 +1275,88 @@ fn register_drag_drop(dispatcher: &mut ViewDispatcher<(), RenderContext, UIEleme
             }
             {
                 let env = env.clone();
+                let destination = destination.clone();
+                let entered = entered.clone();
                 let revoker = element
                     .Drop(move |_sender, args| {
                         let Ok(args) = args.ok() else { return };
                         let view = args.DataView().expect("DragEventArgs::DataView");
+                        let accepted = destination.borrow().accepted_kind();
+                        if incoming_drag_kind(&view) != Some(accepted) {
+                            return;
+                        }
+                        entered.set(false);
+                        // The data view only lives for the event; resolve it
+                        // under a deferral, then deliver on the UI thread.
                         let deferral = args.GetDeferral().expect("DragEventArgs::GetDeferral");
-                        let env = env.clone();
-                        let drop = drop.clone();
-                        // The data view only lives for the event; resolve the
-                        // text asynchronously, hop back onto the UI thread,
-                        // then complete the deferral.
-                        let queue = DispatcherQueue::GetForCurrentThread()
-                            .expect("DispatcherQueue::GetForCurrentThread");
-                        // `when` runs on an arbitrary thread; wrap the
-                        // UI-thread-only state so it is only dereferenced
-                        // inside `TryEnqueue`, back on the UI thread.
-                        let env = send_wrapper::SendWrapper::new(env);
-                        let drop = send_wrapper::SendWrapper::new(drop);
-                        view.GetTextAsync()
-                            .expect("DataView::GetTextAsync")
-                            .cast::<windows_future::IAsyncOperation<windows_core::HSTRING>>()
-                            .expect("IAsyncOperation<HSTRING>")
-                            .when(move |result| {
-                                let _ = queue.TryEnqueue(&DispatcherQueueHandler::new(move || {
-                                    if let Ok(text) = &result {
-                                        let mut local_env = env.clone();
-                                        local_env.insert(DragData::text(text.to_string_lossy()));
-                                        (drop.borrow_mut())(&local_env);
-                                    }
-                                    deferral.Complete().expect("Deferral::Complete");
-                                }));
-                            })
-                            .expect("IAsyncOperation::when");
+                        match accepted {
+                            TransferKind::Text => {
+                                let operation =
+                                    view.GetTextAsync().expect("DataPackageView::GetTextAsync");
+                                resolve_drop(
+                                    operation,
+                                    deferral,
+                                    &executor,
+                                    destination.clone(),
+                                    env.clone(),
+                                    |text| {
+                                        Some(DragPayload::new(Str::from(text.to_string_lossy())))
+                                    },
+                                );
+                            }
+                            TransferKind::Url => {
+                                let operation = view
+                                    .cast::<IDataPackageView2>()
+                                    .expect("IDataPackageView2")
+                                    .GetWebLinkAsync()
+                                    .expect("IDataPackageView2::GetWebLinkAsync");
+                                resolve_drop(
+                                    operation,
+                                    deferral,
+                                    &executor,
+                                    destination.clone(),
+                                    env.clone(),
+                                    |uri| {
+                                        uri.AbsoluteUri()
+                                            .ok()
+                                            .and_then(|link| link.parse::<Url>().ok())
+                                            .map(DragPayload::new)
+                                    },
+                                );
+                            }
+                            TransferKind::Files => {
+                                let operation = view
+                                    .GetStorageItemsAsync()
+                                    .expect("DataPackageView::GetStorageItemsAsync");
+                                resolve_drop(
+                                    operation,
+                                    deferral,
+                                    &executor,
+                                    destination.clone(),
+                                    env.clone(),
+                                    |items| {
+                                        let size = items.Size().expect("IVectorView::Size");
+                                        let urls = (0..size)
+                                            .filter_map(|index| {
+                                                items.GetAt(index).and_then(|item| item.Path()).ok()
+                                            })
+                                            .map(Url::from_file_path)
+                                            .collect::<Vec<_>>();
+                                        Some(DragPayload::new(Files::new(urls)))
+                                    },
+                                );
+                            }
+                            TransferKind::InProcess(_) => {
+                                deferral
+                                    .Complete()
+                                    .expect("DragOperationDeferral::Complete");
+                                if let Some(payload) =
+                                    IN_PROCESS_DRAG.with(|slot| slot.borrow().clone())
+                                {
+                                    destination.borrow_mut().deliver(payload, &env);
+                                }
+                            }
+                        }
                     })
                     .expect("UIElement::Drop");
                 store_event_revoker(&fe, revoker);
