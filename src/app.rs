@@ -4,7 +4,8 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use executor_core::{LocalExecutor, Task};
-use waterui::app::App;
+use waterui::app::{App, AppParts, LastWindowPolicy};
+use windows_core::Interface;
 
 use crate::app_shim::{create_application, install_xaml_controls_resources};
 #[allow(clippy::wildcard_imports)] // the generated namespace
@@ -20,7 +21,12 @@ use crate::window::open_window;
 /// thread, starts the `WinUI` `Application` message loop (blocking), and opens
 /// the app's windows inside `OnLaunched`.
 ///
-/// # Panics
+/// The app may declare no window. Its [`LastWindowPolicy`] decides what
+/// happens once none is open: under [`LastWindowPolicy::Quit`] the
+/// application ends with its last window — `WinUI`'s own
+/// `DispatcherShutdownMode::OnLastWindowClose` — and exits at launch when it
+/// declares none; under [`LastWindowPolicy::StayResident`] the dispatcher
+/// shuts down only on an explicit exit.
 ///
 /// # Errors
 ///
@@ -66,7 +72,12 @@ pub fn run_app(make_app: impl FnOnce() -> App) -> windows_core::Result<()> {
         ),
     );
 
-    let (windows, _menu_bar, env) = make_app().into_parts();
+    let AppParts {
+        windows,
+        env,
+        last_window,
+        ..
+    } = make_app().into_parts();
     let windows = RefCell::new(Some(windows));
     let env = RefCell::new(Some(env));
 
@@ -103,6 +114,26 @@ pub fn run_app(make_app: impl FnOnce() -> App) -> windows_core::Result<()> {
                 .expect("Application::UnhandledException");
             // The subscription lives for the process lifetime.
             core::mem::forget(revoker);
+
+            match last_window {
+                LastWindowPolicy::Quit if windows.is_empty() => {
+                    // No window will ever close, so nothing would end the
+                    // dispatcher: an app that quits after its last window
+                    // and declares none has nothing to run.
+                    tracing::info!(
+                        "the application declares no window and quits after its last one"
+                    );
+                    application.Exit()?;
+                    return Ok(());
+                }
+                // `OnLastWindowClose` is WinUI's default, which is `Quit`.
+                LastWindowPolicy::Quit => {}
+                LastWindowPolicy::StayResident => {
+                    application
+                        .cast::<IApplication3>()?
+                        .SetDispatcherShutdownMode(DispatcherShutdownMode::OnExplicitShutdown)?;
+                }
+            }
 
             let executor = DispatcherQueueExecutor::for_current_thread()?;
             waterui_locale::start_system_locale_listener();

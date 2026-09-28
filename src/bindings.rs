@@ -5441,6 +5441,21 @@ impl windows_core::RuntimeName for DispatcherQueueTimer {
 }
 unsafe impl Send for DispatcherQueueTimer {}
 unsafe impl Sync for DispatcherQueueTimer {}
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct DispatcherShutdownMode(pub i32);
+impl DispatcherShutdownMode {
+    pub const OnLastWindowClose: Self = Self(0);
+    pub const OnExplicitShutdown: Self = Self(1);
+}
+impl windows_core::imp::TypeKind for DispatcherShutdownMode {
+    type TypeKind = windows_core::imp::CopyType;
+}
+impl windows_core::RuntimeType for DispatcherShutdownMode {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::from_slice(
+        b"enum(Microsoft.UI.Xaml.DispatcherShutdownMode;i4)",
+    );
+}
 windows_core::imp::define_interface!(
     DoubleTappedEventHandler,
     DoubleTappedEventHandler_Vtbl,
@@ -8460,6 +8475,11 @@ impl IApplication {
             ))
         }
     }
+    pub(crate) fn Exit(&self) -> windows_core::Result<()> {
+        unsafe {
+            (windows_core::Interface::vtable(self).Exit)(windows_core::Interface::as_raw(self)).ok()
+        }
+    }
 }
 #[repr(C)]
 pub struct IApplication_Vtbl {
@@ -8483,6 +8503,52 @@ pub struct IApplication_Vtbl {
     ) -> windows_core::HRESULT,
     pub RemoveUnhandledException:
         unsafe extern "system" fn(*mut core::ffi::c_void, i64) -> windows_core::HRESULT,
+    pub Exit: unsafe extern "system" fn(*mut core::ffi::c_void) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(
+    IApplication3,
+    IApplication3_Vtbl,
+    0xbe941595_61fe_5b36_a3d3_962a647d7c6f
+);
+impl windows_core::RuntimeType for IApplication3 {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+impl IApplication3 {
+    pub(crate) fn DispatcherShutdownMode(&self) -> windows_core::Result<DispatcherShutdownMode> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).DispatcherShutdownMode)(
+                windows_core::Interface::as_raw(self),
+                &mut result__,
+            )
+            .map(|| result__)
+        }
+    }
+    pub(crate) fn SetDispatcherShutdownMode(
+        &self,
+        value: DispatcherShutdownMode,
+    ) -> windows_core::Result<()> {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetDispatcherShutdownMode)(
+                windows_core::Interface::as_raw(self),
+                value,
+            )
+            .ok()
+        }
+    }
+}
+#[repr(C)]
+pub struct IApplication3_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    pub DispatcherShutdownMode: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut DispatcherShutdownMode,
+    ) -> windows_core::HRESULT,
+    pub SetDispatcherShutdownMode: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        DispatcherShutdownMode,
+    ) -> windows_core::HRESULT,
 }
 windows_core::imp::define_interface!(
     IApplicationFactory,
