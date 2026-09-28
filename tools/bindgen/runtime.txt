@@ -139,6 +139,7 @@ Windows::Win32::E_FAIL
 Windows::Win32::ERROR_INSUFFICIENT_BUFFER
 Windows::Win32::GetCurrentPackageFullName
 Windows::Win32::GetDpiForWindow
+Windows::Win32::GetKeyboardLayout
 Windows::Win32::GetKeyboardState
 Windows::Win32::GetProcessHeap
 Windows::Win32::HeapFree
@@ -159,6 +160,7 @@ Windows::Win32::SetProcessDpiAwarenessContext
 Windows::Win32::ShellExecuteW
 Windows::Win32::STATEREPOSITORY_E_DEPENDENCY_NOT_RESOLVED
 Windows::Win32::SW_SHOWNORMAL
+Windows::Win32::ToUnicodeEx
 Windows::Win32::TryCreatePackageDependency
 extras::ISwapChainPanelNative::SetSwapChain
 extras::IWindowNative::get_WindowHandle

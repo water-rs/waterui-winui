@@ -342,6 +342,30 @@ impl WinUiComponent for Native<ResolvedTextFieldConfig> {
             })
             .expect("TextBox::TextChanged");
 
+        // A line-limited field submits on Enter: the control does not accept
+        // returns, so preview the key, run `on_submit`, and mark it handled.
+        // An unlimited field has `AcceptsReturn` and keeps Enter as a newline,
+        // so it never submits.
+        let submit_revoker = if config.line_limit.is_some() {
+            config.on_submit.map(|on_submit| {
+                let env = env.clone();
+                let element: UIElement = textbox.cast().expect("TextBox is a UIElement");
+                element
+                    .PreviewKeyDown(move |_, args| {
+                        if let Ok(args) = args.ok()
+                            && args.Key().is_ok_and(|key| key == VirtualKey::Enter)
+                        {
+                            on_submit.call(&env);
+                            args.SetHandled(true)
+                                .expect("KeyRoutedEventArgs::SetHandled");
+                        }
+                    })
+                    .expect("UIElement::PreviewKeyDown")
+            })
+        } else {
+            None
+        };
+
         // Label above the entry, matching the GTK layout.
         let root = StackPanel::new().expect("StackPanel::new");
         root.SetOrientation(Orientation::Vertical)
@@ -358,6 +382,9 @@ impl WinUiComponent for Native<ResolvedTextFieldConfig> {
         let element: FrameworkElement = root.cast().expect("StackPanel is a FrameworkElement");
         store_watcher_guards(&element, [value_guard, prompt_guard]);
         store_event_revoker(&element, revoker);
+        if let Some(submit_revoker) = submit_revoker {
+            store_event_revoker(&element, submit_revoker);
+        }
         element.cast().expect("FrameworkElement is a UIElement")
     }
 }

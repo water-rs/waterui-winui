@@ -98,7 +98,7 @@ impl WinUiComponent for Native<ListConfig> {
         let weak = repeater
             .downgrade()
             .expect("ItemsRepeater supports weak refs");
-        let mut guards = vec![contents.watch(.., move |ctx| {
+        let mut guards = vec![contents.watch(.., move |ctx, _change| {
             let count = ctx.value().to_vec().len();
             let weak = weak.clone();
             let queue = queue.clone();
