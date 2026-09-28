@@ -72,6 +72,7 @@ Microsoft::UI::Xaml::Controls::RowDefinitionCollection::{}
 Microsoft::UI::Xaml::Controls::ToolTipService::{SetPlacement, SetToolTip}
 Microsoft::UI::Xaml::Controls::TreeViewNode::CreateInstance
 Microsoft::UI::Xaml::Controls::XamlControlsResources::CreateInstance
+Microsoft::UI::Xaml::DispatcherShutdownMode::{OnLastWindowClose, OnExplicitShutdown}
 Microsoft::UI::Xaml::Documents::Block::{}
 Microsoft::UI::Xaml::Documents::Hyperlink::CreateInstance
 Microsoft::UI::Xaml::Documents::IHyperlink::put_NavigateUri
@@ -88,7 +89,8 @@ Microsoft::UI::Xaml::GridLength
 Microsoft::UI::Xaml::GridUnitType
 Microsoft::UI::Xaml::Hosting::ElementCompositionPreview::{GetElementVisual, SetElementChildVisual}
 Microsoft::UI::Xaml::IApplication::get_Resources
-Microsoft::UI::Xaml::IApplication::{add_UnhandledException, remove_UnhandledException}
+Microsoft::UI::Xaml::IApplication::{add_UnhandledException, remove_UnhandledException, Exit}
+Microsoft::UI::Xaml::IApplication3::{get_DispatcherShutdownMode, put_DispatcherShutdownMode}
 Microsoft::UI::Xaml::UnhandledExceptionEventArgs::{get_Exception, get_Message, get_Handled, put_Handled}
 Microsoft::UI::Xaml::IApplicationOverrides::{}
 Microsoft::UI::Xaml::IDependencyObject::ClearValue
