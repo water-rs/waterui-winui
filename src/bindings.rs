@@ -27483,6 +27483,41 @@ impl IScrollViewer {
             .map(|| result__)
         }
     }
+    pub(crate) fn ViewChanging<F>(
+        &self,
+        handler: F,
+    ) -> windows_core::Result<windows_core::EventRevoker>
+    where
+        F: Fn(
+                windows_core::Ref<windows_core::IInspectable>,
+                windows_core::Ref<ScrollViewerViewChangingEventArgs>,
+            ) + 'static,
+    {
+        let handler: EventHandler<ScrollViewerViewChangingEventArgs> = {
+            let com = windows_core::imp::DelegateBox::<
+                EventHandler<ScrollViewerViewChangingEventArgs>,
+                F,
+            >::new(
+                &EventHandlerBox::<ScrollViewerViewChangingEventArgs, F>::VTABLE,
+                handler,
+            );
+            unsafe { core::mem::transmute(windows_core::imp::box_new(com)) }
+        };
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            let token__ = (windows_core::Interface::vtable(self).ViewChanging)(
+                windows_core::Interface::as_raw(self),
+                windows_core::Interface::as_raw(&handler),
+                &mut result__,
+            )
+            .map(|| result__)?;
+            Ok(windows_core::EventRevoker::new(
+                self.clone(),
+                token__,
+                windows_core::Interface::vtable(self).RemoveViewChanging,
+            ))
+        }
+    }
     pub(crate) fn ViewChanged<F>(
         &self,
         handler: F,
@@ -27619,8 +27654,13 @@ pub struct IScrollViewer_Vtbl {
     SetCanContentRenderOutsideBounds: usize,
     AnchorRequested: usize,
     RemoveAnchorRequested: usize,
-    ViewChanging: usize,
-    RemoveViewChanging: usize,
+    pub ViewChanging: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
+        *mut i64,
+    ) -> windows_core::HRESULT,
+    pub RemoveViewChanging:
+        unsafe extern "system" fn(*mut core::ffi::c_void, i64) -> windows_core::HRESULT,
     pub ViewChanged: unsafe extern "system" fn(
         *mut core::ffi::c_void,
         *mut core::ffi::c_void,
@@ -27704,6 +27744,19 @@ impl windows_core::RuntimeType for IScrollViewerViewChangedEventArgs {
 }
 #[repr(C)]
 pub struct IScrollViewerViewChangedEventArgs_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+}
+windows_core::imp::define_interface!(
+    IScrollViewerViewChangingEventArgs,
+    IScrollViewerViewChangingEventArgs_Vtbl,
+    0xaee37d7c_4696_55f1_96ca_656832fc0fd2
+);
+impl windows_core::RuntimeType for IScrollViewerViewChangingEventArgs {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct IScrollViewerViewChangingEventArgs_Vtbl {
     pub base__: windows_core::IInspectable_Vtbl,
 }
 windows_core::imp::define_interface!(
@@ -44015,6 +44068,34 @@ impl windows_core::RuntimeName for ScrollViewerViewChangedEventArgs {
 }
 unsafe impl Send for ScrollViewerViewChangedEventArgs {}
 unsafe impl Sync for ScrollViewerViewChangedEventArgs {}
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ScrollViewerViewChangingEventArgs(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(
+    ScrollViewerViewChangingEventArgs,
+    windows_core::IUnknown,
+    windows_core::IInspectable
+);
+impl windows_core::RuntimeType for ScrollViewerViewChangingEventArgs {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_class::<Self, IScrollViewerViewChangingEventArgs>();
+}
+unsafe impl windows_core::Interface for ScrollViewerViewChangingEventArgs {
+    type Vtable = <IScrollViewerViewChangingEventArgs as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID =
+        <IScrollViewerViewChangingEventArgs as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for ScrollViewerViewChangingEventArgs {
+    type Target = IScrollViewerViewChangingEventArgs;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for ScrollViewerViewChangingEventArgs {
+    const NAME: &'static str = "Microsoft.UI.Xaml.Controls.ScrollViewerViewChangingEventArgs";
+}
+unsafe impl Send for ScrollViewerViewChangingEventArgs {}
+unsafe impl Sync for ScrollViewerViewChangingEventArgs {}
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct ScrollingScrollBarVisibility(pub i32);
