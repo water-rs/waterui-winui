@@ -655,7 +655,7 @@ Microsoft::UI::Xaml::Controls::IItemsControl::{get_Items}
 Microsoft::UI::Xaml::Controls::ItemCollection::{Append, Clear, get_Size, GetAt, InsertAt, RemoveAt}
 Microsoft::UI::Xaml::Controls::Primitives::ISelector::put_SelectedIndex
 Microsoft::UI::Xaml::Controls::IListViewBase::{get_SelectedItems, add_ItemClick, remove_ItemClick}
-Microsoft::UI::Xaml::Controls::IScrollViewer::{ChangeView, get_HorizontalOffset, get_VerticalOffset, add_ViewChanged, remove_ViewChanged}
+Microsoft::UI::Xaml::Controls::IScrollViewer::{ChangeView, get_HorizontalOffset, get_VerticalOffset, add_ViewChanged, remove_ViewChanged, add_ViewChanging, remove_ViewChanging}
 Microsoft::UI::Xaml::Controls::INavigationView::{add_ItemInvoked, remove_ItemInvoked}
 Microsoft::UI::Xaml::Controls::INavigationView2::{add_BackRequested, remove_BackRequested}
 Microsoft::UI::Xaml::Controls::INavigationView2::put_IsBackEnabled

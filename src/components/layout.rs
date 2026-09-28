@@ -1,6 +1,9 @@
 //! Layout containers: spacer, fixed/lazy containers, divider, scroll view.
 
-use nami::Signal;
+use std::cell::Cell;
+use std::rc::Rc;
+
+use nami::{Binding, Signal};
 use waterui::prelude::Divider;
 use waterui_core::layout::Point;
 use waterui_core::{Environment, Native};
@@ -94,7 +97,7 @@ impl WinUiComponent for Native<ScrollView> {
             axis,
             content,
             controller,
-            // `report_offset` is not wired on this backend yet.
+            offset,
             ..
         } = self.into_inner().into_inner();
 
@@ -119,6 +122,10 @@ impl WinUiComponent for Native<ScrollView> {
             .SetContent(&content)
             .expect("ContentControl::SetContent");
 
+        if let Some(offset) = offset {
+            install_offset_reporting(&viewer, &offset);
+        }
+
         if let Some(controller) = controller {
             let queue = renderer.executor().queue().clone();
             let weak = viewer.downgrade().expect("ScrollViewer supports weak refs");
@@ -141,6 +148,60 @@ impl WinUiComponent for Native<ScrollView> {
         }
 
         viewer.cast().expect("ScrollViewer is a UIElement")
+    }
+}
+
+/// `ScrollView::report_offset`: `HorizontalOffset`/`VerticalOffset` are the
+/// content offset in points. `ViewChanging` covers the frames during a
+/// manipulation and `ViewChanged` the settled value; writes happen on change
+/// only.
+fn install_offset_reporting(viewer: &ScrollViewer, offset: &Binding<Point>) {
+    let last = Rc::new(Cell::new(current_offset(viewer)));
+    offset.set(last.get());
+
+    let weak = viewer.downgrade().expect("ScrollViewer supports weak refs");
+    let offset_changing = offset.clone();
+    let last_changing = Rc::clone(&last);
+    let changing = viewer
+        .ViewChanging(move |_, _| {
+            if let Some(viewer) = weak.upgrade() {
+                report_offset(&viewer, &offset_changing, &last_changing);
+            }
+        })
+        .expect("ScrollViewer::ViewChanging");
+
+    let weak = viewer.downgrade().expect("ScrollViewer supports weak refs");
+    let offset_changed = offset.clone();
+    let last_changed = Rc::clone(&last);
+    let changed = viewer
+        .ViewChanged(move |_, _| {
+            if let Some(viewer) = weak.upgrade() {
+                report_offset(&viewer, &offset_changed, &last_changed);
+            }
+        })
+        .expect("ScrollViewer::ViewChanged");
+
+    let element: FrameworkElement = viewer.cast().expect("ScrollViewer is a FrameworkElement");
+    crate::util::store_event_revoker(&element, changing);
+    crate::util::store_event_revoker(&element, changed);
+}
+
+#[allow(
+    clippy::cast_possible_truncation,
+    reason = "WinUI offsets are f64 while WaterUI's offset point is f32"
+)]
+fn current_offset(viewer: &ScrollViewer) -> Point {
+    Point::new(
+        viewer.HorizontalOffset().unwrap_or_default() as f32,
+        viewer.VerticalOffset().unwrap_or_default() as f32,
+    )
+}
+
+fn report_offset(viewer: &ScrollViewer, offset: &Binding<Point>, last: &Cell<Point>) {
+    let point = current_offset(viewer);
+    if point != last.get() {
+        last.set(point);
+        offset.set(point);
     }
 }
 
