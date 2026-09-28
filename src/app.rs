@@ -5,6 +5,7 @@ use std::rc::Rc;
 
 use executor_core::{LocalExecutor, Task};
 use waterui::app::{App, AppParts, LastWindowPolicy};
+use windows_core::Interface;
 
 use crate::app_shim::{create_application, install_xaml_controls_resources};
 #[allow(clippy::wildcard_imports)] // the generated namespace
@@ -119,7 +120,9 @@ pub fn run_app(make_app: impl FnOnce() -> App) -> windows_core::Result<()> {
                     // No window will ever close, so nothing would end the
                     // dispatcher: an app that quits after its last window
                     // and declares none has nothing to run.
-                    tracing::info!("the application declares no window and quits after its last one");
+                    tracing::info!(
+                        "the application declares no window and quits after its last one"
+                    );
                     application.Exit()?;
                     return Ok(());
                 }
@@ -127,6 +130,7 @@ pub fn run_app(make_app: impl FnOnce() -> App) -> windows_core::Result<()> {
                 LastWindowPolicy::Quit => {}
                 LastWindowPolicy::StayResident => {
                     application
+                        .cast::<IApplication3>()?
                         .SetDispatcherShutdownMode(DispatcherShutdownMode::OnExplicitShutdown)?;
                 }
             }
