@@ -5,7 +5,7 @@ use waterui::prelude::Divider;
 use waterui_core::layout::Point;
 use waterui_core::{Environment, Native};
 use waterui_layout::container::{FixedContainer, LazyContainer};
-use waterui_layout::scroll::{Axis, ScrollView};
+use waterui_layout::scroll::{Axis, ScrollView, ScrollViewParts};
 use waterui_layout::spacer::Spacer;
 use windows_core::Interface;
 
@@ -90,7 +90,13 @@ fn theme_resource_brush(key: &str) -> Option<Brush> {
 impl WinUiComponent for Native<ScrollView> {
     /// Renders `ScrollViewer` with axis-dependent scrollbar visibility.
     fn render(self, env: &Environment, renderer: &mut WinUiRenderer) -> UIElement {
-        let (axis, content, controller) = self.into_inner().into_inner();
+        let ScrollViewParts {
+            axis,
+            content,
+            controller,
+            // `report_offset` is not wired on this backend yet.
+            ..
+        } = self.into_inner().into_inner();
 
         let viewer = ScrollViewer::new().expect("ScrollViewer::new");
         let (h, v) = match axis {
