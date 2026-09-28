@@ -31,6 +31,7 @@ use waterui::style::{Anchor, Offset, Rotation, Scale, Shadow};
 use waterui_backend_core::ViewDispatcher;
 use waterui_core::event::{Event, HoverEvent, LifeCycle, LifeCycleHook, OnEvent};
 use waterui_core::handler::BoxedAction;
+use waterui_core::key::{KeyHandling, KeyPress, OnKeyPress};
 use waterui_core::layout::Point as LayoutPoint;
 use waterui_core::{Environment, IgnorableMetadata, Metadata, Retain};
 use waterui_layout::safe_area::IgnoreSafeArea;
@@ -62,6 +63,7 @@ pub(crate) fn register(dispatcher: &mut ViewDispatcher<(), RenderContext, UIElem
     register_clip_shape(dispatcher);
     register_hittable(dispatcher);
     register_on_event(dispatcher);
+    register_on_key_press(dispatcher);
     register_gesture_observer(dispatcher);
     register_context_menu(dispatcher);
     register_drag_drop(dispatcher);
@@ -833,6 +835,43 @@ fn register_on_event(dispatcher: &mut ViewDispatcher<(), RenderContext, UIElemen
                 _ => panic!("unsupported OnEvent variant on WinUI backend"),
             };
             store_event_revoker(&fe, revoker);
+            element
+        },
+    );
+}
+
+/// `Metadata<OnKeyPress>` — claim unconsumed keys as they bubble up.
+fn register_on_key_press(dispatcher: &mut ViewDispatcher<(), RenderContext, UIElement>) {
+    WinUiRenderer::register_with_renderer::<Metadata<OnKeyPress>>(
+        dispatcher,
+        |renderer, metadata, env| {
+            let element = renderer.render_any(metadata.content, env);
+            // `KeyDown` is WinUI's bubble phase: it reaches this element only
+            // after every focused descendant left the press unhandled, and it
+            // climbs ancestors nearest-first until one marks it `Handled`.
+            let handler = RefCell::new(metadata.value);
+            let env = env.clone();
+            let revoker = element
+                .KeyDown(move |_sender, args| {
+                    let Ok(args) = args.ok() else { return };
+                    let Ok(key) = args.Key() else { return };
+                    let Ok(status) = args.KeyStatus() else { return };
+                    let press = KeyPress {
+                        key: crate::key_input::surface_key(key, status.scan_code),
+                        code: crate::key_input::surface_code(
+                            status.scan_code,
+                            status.is_extended_key,
+                        ),
+                        modifiers: crate::key_input::surface_modifiers(),
+                        repeat: status.was_key_down,
+                    };
+                    if handler.borrow_mut().handle(&env.extending(press)) == KeyHandling::Handled {
+                        args.SetHandled(true)
+                            .expect("KeyRoutedEventArgs::SetHandled");
+                    }
+                })
+                .expect("UIElement::KeyDown");
+            store_event_revoker(&framework(&element), revoker);
             element
         },
     );

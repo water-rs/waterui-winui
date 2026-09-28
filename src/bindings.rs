@@ -3,6 +3,7 @@ windows_core::link!("ole32.dll" "system" fn CoInitializeEx(pvreserved : *const c
 windows_core::link!("d2d1.dll" "system" fn D2D1CreateFactory(factorytype : D2D1_FACTORY_TYPE, riid : *const windows_core::GUID, pfactoryoptions : *const D2D1_FACTORY_OPTIONS, ppifactory : *mut *mut core::ffi::c_void) -> windows_core::HRESULT);
 windows_core::link!("kernel32.dll" "system" fn GetCurrentPackageFullName(packagefullnamelength : *mut u32, packagefullname : windows_core::PWSTR) -> i32);
 windows_core::link!("user32.dll" "system" fn GetDpiForWindow(hwnd : HWND) -> u32);
+windows_core::link!("user32.dll" "system" fn GetKeyboardLayout(idthread : u32) -> HKL);
 windows_core::link!("user32.dll" "system" fn GetKeyboardState(lpkeystate : *mut u8) -> windows_core::BOOL);
 windows_core::link!("kernel32.dll" "system" fn GetProcessHeap() -> HANDLE);
 windows_core::link!("kernel32.dll" "system" fn HeapFree(hheap : HANDLE, dwflags : u32, lpmem : *mut core::ffi::c_void) -> windows_core::BOOL);
@@ -10,6 +11,7 @@ windows_core::link!("user32.dll" "system" fn MessageBoxW(hwnd : HWND, lptext : w
 windows_core::link!("user32.dll" "system" fn PostQuitMessage(nexitcode : i32));
 windows_core::link!("user32.dll" "system" fn SetProcessDpiAwarenessContext(value : DPI_AWARENESS_CONTEXT) -> windows_core::BOOL);
 windows_core::link!("shell32.dll" "system" fn ShellExecuteW(hwnd : HWND, lpoperation : windows_core::PCWSTR, lpfile : windows_core::PCWSTR, lpparameters : windows_core::PCWSTR, lpdirectory : windows_core::PCWSTR, nshowcmd : i32) -> HINSTANCE);
+windows_core::link!("user32.dll" "system" fn ToUnicodeEx(wvirtkey : u32, wscancode : u32, lpkeystate : *const u8, pwszbuff : windows_core::PWSTR, cchbuff : i32, wflags : u32, dwhkl : HKL) -> i32);
 windows_core::link!("api-ms-win-appmodel-runtime-l1-1-5.dll" "system" fn TryCreatePackageDependency(user : PSID, packagefamilyname : windows_core::PCWSTR, minversion : PACKAGE_VERSION, packagedependencyprocessorarchitectures : PackageDependencyProcessorArchitectures, lifetimekind : PackageDependencyLifetimeKind, lifetimeartifact : windows_core::PCWSTR, options : CreatePackageDependencyOptions, packagedependencyid : *mut windows_core::PWSTR) -> windows_core::HRESULT);
 pub const APPMODEL_ERROR_NO_PACKAGE: i32 = 15700;
 #[repr(transparent)]
@@ -7445,6 +7447,7 @@ unsafe impl Send for GridViewItem {}
 unsafe impl Sync for GridViewItem {}
 pub type HANDLE = *mut core::ffi::c_void;
 pub type HINSTANCE = *mut core::ffi::c_void;
+pub type HKL = *mut core::ffi::c_void;
 pub type HWND = *mut core::ffi::c_void;
 windows_core::imp::define_interface!(
     HoldingEventHandler,
@@ -33400,6 +33403,33 @@ impl IUIElement {
             ))
         }
     }
+    pub(crate) fn KeyDown<F>(&self, handler: F) -> windows_core::Result<windows_core::EventRevoker>
+    where
+        F: Fn(windows_core::Ref<windows_core::IInspectable>, windows_core::Ref<KeyRoutedEventArgs>)
+            + 'static,
+    {
+        let handler: KeyEventHandler = {
+            let com = windows_core::imp::DelegateBox::<KeyEventHandler, F>::new(
+                &KeyEventHandlerBox::<F>::VTABLE,
+                handler,
+            );
+            unsafe { core::mem::transmute(windows_core::imp::box_new(com)) }
+        };
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            let token__ = (windows_core::Interface::vtable(self).KeyDown)(
+                windows_core::Interface::as_raw(self),
+                windows_core::Interface::as_raw(&handler),
+                &mut result__,
+            )
+            .map(|| result__)?;
+            Ok(windows_core::EventRevoker::new(
+                self.clone(),
+                token__,
+                windows_core::Interface::vtable(self).RemoveKeyDown,
+            ))
+        }
+    }
     pub(crate) fn GotFocus<F>(&self, handler: F) -> windows_core::Result<windows_core::EventRevoker>
     where
         F: Fn(windows_core::Ref<windows_core::IInspectable>, windows_core::Ref<RoutedEventArgs>)
@@ -34493,8 +34523,13 @@ pub struct IUIElement_Vtbl {
     ) -> windows_core::HRESULT,
     pub RemoveKeyUp:
         unsafe extern "system" fn(*mut core::ffi::c_void, i64) -> windows_core::HRESULT,
-    KeyDown: usize,
-    RemoveKeyDown: usize,
+    pub KeyDown: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
+        *mut i64,
+    ) -> windows_core::HRESULT,
+    pub RemoveKeyDown:
+        unsafe extern "system" fn(*mut core::ffi::c_void, i64) -> windows_core::HRESULT,
     pub GotFocus: unsafe extern "system" fn(
         *mut core::ffi::c_void,
         *mut core::ffi::c_void,

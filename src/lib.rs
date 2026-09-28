@@ -33,6 +33,7 @@ pub(crate) mod d2d;
 pub(crate) mod executor;
 #[cfg(feature = "gpu")]
 pub(crate) mod gpu;
+pub(crate) mod key_input;
 pub(crate) mod layout;
 pub(crate) mod renderer;
 pub(crate) mod theme;
