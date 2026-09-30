@@ -1,5 +1,8 @@
 //! `waterui::window::Window` → `WinUI` `Window` integration.
 
+use std::cell::RefCell;
+use std::rc::Rc;
+
 use nami::Signal;
 use waterui::window::{
     UserAttention, Window as WaterUiWindow, WindowBackground, WindowLevel, WindowState, WindowStyle,
@@ -90,9 +93,22 @@ pub fn open_window(
         store_watcher_guards(&framework(&content), vec![guard]);
     }
 
+    // The HWND is a window-lifetime fact, not a constructor fact: it does not
+    // exist yet for a deferred native window and is gone again once `Close`
+    // destroys it. This cell tracks it; the `Activated` subscription is
+    // registered before every other one so `HWND`-dependent applications
+    // replayed at creation run ahead of handlers like the attention reset.
+    let hwnd_state: SharedHwnd = Rc::new(RefCell::new(WindowHwnd {
+        hwnd: try_window_hwnd(&window),
+        ..WindowHwnd::default()
+    }));
+    install_hwnd_gate(&window, &content, hwnd_state.clone())?;
+
     // Close request (user presses X) must mirror into `state`.
     let state = desc.state.clone();
+    let closed_hwnd_state = hwnd_state.clone();
     let revoker = window.Closed(move |_sender, _args| {
+        closed_hwnd_state.borrow_mut().destroyed();
         state.set(WindowState::Closed);
     })?;
     store_event_revoker(&framework(&content), revoker);
@@ -101,29 +117,68 @@ pub fn open_window(
     {
         let queue = window.DispatcherQueue()?;
         let weak = window.downgrade().expect("Window weak ref");
-        let (initial, guard) = subscribe_then_get(&desc.state, move |ctx| {
+        let hwnd_watcher = hwnd_state.clone();
+        let (_, guard) = subscribe_then_get(&desc.state, move |ctx| {
             let new_state = ctx.into_value();
             let weak = weak.clone();
             let queue = queue.clone();
+            let hwnd_watcher = hwnd_watcher.clone();
             enqueue_on_ui_thread(&queue, move || {
-                if let Some(window) = weak.upgrade() {
+                if let Some(window) = weak.upgrade()
+                    && hwnd_watcher.borrow().hwnd.is_some()
+                {
                     apply_window_state(&window, new_state);
                 }
             });
         });
         store_watcher_guards(&framework(&content), vec![guard]);
-        if initial != WindowState::Normal {
-            apply_window_state(&window, initial);
-        }
+        let weak = window.downgrade().expect("Window weak ref");
+        let state = desc.state.clone();
+        hwnd_state.borrow_mut().when_created(move |_hwnd| {
+            if let Some(window) = weak.upgrade() {
+                let state = state.snapshot();
+                if state != WindowState::Normal {
+                    apply_window_state(&window, state);
+                }
+            }
+        });
     }
 
     install_state_writeback(&window, &desc.state, &desc.level, &content)?;
-    install_level(&window, &desc.level, &content);
-    install_attention(&window, &desc.attention, &content)?;
-    install_resize_increments(&window, desc.resize_increments.as_ref(), &content);
+    install_level(&window, &desc.level, &content, &hwnd_state);
+    install_attention(&window, &desc.attention, &content, &hwnd_state)?;
+    install_resize_increments(
+        &window,
+        desc.resize_increments.as_ref(),
+        &content,
+        &hwnd_state,
+    );
 
     window.Activate()?;
     Ok(window)
+}
+
+/// Feeds the live `HWND` into `hwnd_state` once activation creates the
+/// native window. Registered before every other `Activated` subscription so
+/// `HWND`-dependent applications replayed at creation run ahead of handlers
+/// like the attention reset.
+fn install_hwnd_gate(
+    window: &Window,
+    content: &UIElement,
+    hwnd_state: SharedHwnd,
+) -> windows_core::Result<()> {
+    let weak = window.downgrade().expect("Window weak ref");
+    let revoker = window.Activated(move |_sender, _args| {
+        let Some(hwnd) = weak.upgrade().as_ref().and_then(try_window_hwnd) else {
+            return;
+        };
+        let pending = hwnd_state.borrow_mut().created(hwnd);
+        for apply in pending {
+            apply(hwnd);
+        }
+    })?;
+    store_event_revoker(&framework(content), revoker);
+    Ok(())
 }
 
 /// Maximize/restore through the window chrome surfaces as a presenter
@@ -187,15 +242,23 @@ fn install_state_writeback(
 
 /// Window level → `OverlappedPresenter::IsAlwaysOnTop`. Non-overlapped
 /// presenters (full screen) cannot float; nothing is applied there.
-fn install_level(window: &Window, level: &nami::Computed<WindowLevel>, content: &UIElement) {
+fn install_level(
+    window: &Window,
+    level: &nami::Computed<WindowLevel>,
+    content: &UIElement,
+    hwnd_state: &SharedHwnd,
+) {
     let queue = window.DispatcherQueue().expect("Window::DispatcherQueue");
     let weak = window.downgrade().expect("Window weak ref");
-    let (initial, guard) = subscribe_then_get(level, move |ctx| {
+    let hwnd_watcher = hwnd_state.clone();
+    let (_, guard) = subscribe_then_get(level, move |ctx| {
         let level = ctx.into_value();
         let weak = weak.clone();
         let queue = queue.clone();
+        let hwnd_watcher = hwnd_watcher.clone();
         enqueue_on_ui_thread(&queue, move || {
             if let Some(window) = weak.upgrade()
+                && hwnd_watcher.borrow().hwnd.is_some()
                 && let Ok(overlapped) = app_window(&window)
                     .Presenter()
                     .and_then(|p| p.cast::<OverlappedPresenter>())
@@ -205,12 +268,17 @@ fn install_level(window: &Window, level: &nami::Computed<WindowLevel>, content: 
         });
     });
     store_watcher_guards(&framework(content), vec![guard]);
-    if let Ok(overlapped) = app_window(window)
-        .Presenter()
-        .and_then(|p| p.cast::<OverlappedPresenter>())
-    {
-        apply_window_level(&overlapped, initial);
-    }
+    let weak = window.downgrade().expect("Window weak ref");
+    let level = level.clone();
+    hwnd_state.borrow_mut().when_created(move |_hwnd| {
+        if let Some(window) = weak.upgrade()
+            && let Ok(overlapped) = app_window(&window)
+                .Presenter()
+                .and_then(|p| p.cast::<OverlappedPresenter>())
+        {
+            apply_window_level(&overlapped, level.snapshot());
+        }
+    });
 }
 
 /// Attention → `FlashWindowEx`; the window gaining focus settles the
@@ -219,21 +287,32 @@ fn install_attention(
     window: &Window,
     attention: &nami::Binding<Option<UserAttention>>,
     content: &UIElement,
+    hwnd_state: &SharedHwnd,
 ) -> windows_core::Result<()> {
     let queue = window.DispatcherQueue()?;
     let weak = window.downgrade().expect("Window weak ref");
-    let (initial, guard) = subscribe_then_get(attention, move |ctx| {
+    let hwnd_watcher = hwnd_state.clone();
+    let (_, guard) = subscribe_then_get(attention, move |ctx| {
         let request = ctx.into_value();
         let weak = weak.clone();
         let queue = queue.clone();
+        let hwnd_watcher = hwnd_watcher.clone();
         enqueue_on_ui_thread(&queue, move || {
-            if let Some(window) = weak.upgrade() {
+            if let Some(window) = weak.upgrade()
+                && hwnd_watcher.borrow().hwnd.is_some()
+            {
                 apply_attention(&window, request);
             }
         });
     });
     store_watcher_guards(&framework(content), vec![guard]);
-    apply_attention(window, initial);
+    let weak = window.downgrade().expect("Window weak ref");
+    let request = attention.clone();
+    hwnd_state.borrow_mut().when_created(move |_hwnd| {
+        if let Some(window) = weak.upgrade() {
+            apply_attention(&window, request.snapshot());
+        }
+    });
 
     let attention = attention.clone();
     let revoker = window.Activated(move |_sender, _args| {
@@ -316,16 +395,69 @@ fn apply_window_state(window: &Window, state: WindowState) {
     }
 }
 
+/// `IWindowNative::WindowHandle` reports the `HWND` only while the native
+/// window exists, so this returns `None` before activation creates it (a
+/// `Window` constructed off-screen owns none yet) and after `Close` destroys
+/// it.
+fn try_window_hwnd(window: &Window) -> Option<HWND> {
+    window.cast::<IWindowNative>().ok().and_then(|native| {
+        let mut hwnd: HWND = core::ptr::null_mut();
+        unsafe { native.WindowHandle(&raw mut hwnd) }.ok().ok()?;
+        if hwnd.is_null() { None } else { Some(hwnd) }
+    })
+}
+
 fn window_hwnd(window: &Window) -> HWND {
-    window
-        .cast::<IWindowNative>()
-        .ok()
-        .and_then(|native| {
-            let mut hwnd: HWND = core::ptr::null_mut();
-            unsafe { native.WindowHandle(&raw mut hwnd) }.ok().ok()?;
-            if hwnd.is_null() { None } else { Some(hwnd) }
-        })
-        .expect("IWindowNative::WindowHandle")
+    try_window_hwnd(window).expect("IWindowNative::WindowHandle")
+}
+
+/// Shared bookkeeping of the window's `HWND`, used to order `HWND`-dependent
+/// applications after the native window's creation. Watchers apply only
+/// while `hwnd` is live — before creation their newest value is replayed
+/// from the signal at creation, and after destruction there is no window
+/// left to apply it to — so no update is silently dropped. Every accessor
+/// runs on the UI thread.
+#[derive(Default)]
+struct WindowHwnd {
+    /// The live `HWND`, while the native window exists.
+    hwnd: Option<HWND>,
+    /// `true` once `Close`/`Closed` destroyed the native window; subclass
+    /// data freed on `WM_NCDESTROY` may not be touched after this.
+    destroyed: bool,
+    /// Applications registered before creation, replayed in order with the
+    /// newest signal snapshots once the `HWND` exists.
+    pending: Vec<Box<dyn FnOnce(HWND)>>,
+}
+
+type SharedHwnd = Rc<RefCell<WindowHwnd>>;
+
+impl WindowHwnd {
+    /// Runs `apply` with the `HWND` now, or once activation produces it.
+    fn when_created(&mut self, apply: impl FnOnce(HWND) + 'static) {
+        if let Some(hwnd) = self.hwnd {
+            apply(hwnd);
+        } else {
+            self.pending.push(Box::new(apply));
+        }
+    }
+
+    /// Records the live `HWND` and drains the creation queue; already
+    /// created or destroyed windows (deactivation events also raise
+    /// `Activated`) return an empty queue and keep their state.
+    fn created(&mut self, hwnd: HWND) -> Vec<Box<dyn FnOnce(HWND)>> {
+        if self.destroyed {
+            return Vec::new();
+        }
+        self.hwnd = Some(hwnd);
+        std::mem::take(&mut self.pending)
+    }
+
+    /// Forgets the `HWND`: `Window::Close` has destroyed the native window
+    /// and applications from now on have nothing to apply to.
+    fn destroyed(&mut self) {
+        self.hwnd = None;
+        self.destroyed = true;
+    }
 }
 
 /// Latest increment in logical points, written by the computed watcher and
@@ -345,38 +477,48 @@ fn install_resize_increments(
     window: &Window,
     increments: Option<&nami::Computed<Size>>,
     content: &UIElement,
+    hwnd_state: &SharedHwnd,
 ) {
     let Some(increments) = increments else {
         return;
     };
-    let hwnd = window_hwnd(window);
     let initial = increments.snapshot();
+    // The box backs the subclass's `dwRefData`; allocating it now lets the
+    // watcher record increments before the subclass exists.
     let shared = Box::into_raw(Box::new(ResizeIncrements {
         width: initial.width,
         height: initial.height,
     }));
-    let installed = unsafe {
-        SetWindowSubclass(
-            hwnd,
-            Some(resize_increment_subclass),
-            RESIZE_INCREMENT_SUBCLASS_ID,
-            shared as usize,
-        )
-    };
-    if !installed.as_bool() {
-        drop(unsafe { Box::from_raw(shared) });
-        panic!("SetWindowSubclass failed");
-    }
+    hwnd_state.borrow_mut().when_created(move |hwnd| {
+        let installed = unsafe {
+            SetWindowSubclass(
+                hwnd,
+                Some(resize_increment_subclass),
+                RESIZE_INCREMENT_SUBCLASS_ID,
+                shared as usize,
+            )
+        };
+        if !installed.as_bool() {
+            drop(unsafe { Box::from_raw(shared) });
+            panic!("SetWindowSubclass failed");
+        }
+    });
     let queue = window.DispatcherQueue().expect("Window::DispatcherQueue");
+    let hwnd_watcher = hwnd_state.clone();
     let (_, guard) = subscribe_then_get(increments, move |ctx| {
         let size = ctx.into_value();
         let queue = queue.clone();
+        let hwnd_watcher = hwnd_watcher.clone();
         enqueue_on_ui_thread(&queue, move || {
-            // SAFETY: `shared` is owned by the subclass until WM_NCDESTROY,
-            // which runs on this same UI thread.
-            unsafe {
-                (*shared).width = size.width;
-                (*shared).height = size.height;
+            // SAFETY: `shared` is owned by the subclass until WM_NCDESTROY
+            // frees it on this same UI thread — while the window is not yet
+            // destroyed the box is either awaiting the subclass or live in
+            // it, and writes are legal either way.
+            if !hwnd_watcher.borrow().destroyed {
+                unsafe {
+                    (*shared).width = size.width;
+                    (*shared).height = size.height;
+                }
             }
         });
     });
