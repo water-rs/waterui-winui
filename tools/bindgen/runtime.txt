@@ -136,6 +136,8 @@ Windows::Win32::APPMODEL_ERROR_NO_PACKAGE
 Windows::Win32::AddPackageDependency
 Windows::Win32::COINIT_APARTMENTTHREADED
 Windows::Win32::CoInitializeEx
+Windows::Win32::CreateIcon
+Windows::Win32::DestroyIcon
 Windows::Win32::DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2
 Windows::Win32::E_FAIL
 Windows::Win32::ERROR_INSUFFICIENT_BUFFER
@@ -145,6 +147,8 @@ Windows::Win32::GetKeyboardLayout
 Windows::Win32::GetKeyboardState
 Windows::Win32::GetProcessHeap
 Windows::Win32::HeapFree
+Windows::Win32::ICON_BIG
+Windows::Win32::ICON_SMALL
 Windows::Win32::IDYES
 Windows::Win32::MB_ICONERROR
 Windows::Win32::MB_YESNO
@@ -158,12 +162,14 @@ Windows::Win32::PackageDependencyProcessorArchitectures::PackageDependencyProces
 Windows::Win32::PackageDependencyProcessorArchitectures::PackageDependencyProcessorArchitectures_None
 Windows::Win32::PostQuitMessage
 Windows::Win32::RPC_E_CHANGED_MODE
+Windows::Win32::SendMessageW
 Windows::Win32::SetProcessDpiAwarenessContext
 Windows::Win32::ShellExecuteW
 Windows::Win32::STATEREPOSITORY_E_DEPENDENCY_NOT_RESOLVED
 Windows::Win32::SW_SHOWNORMAL
 Windows::Win32::ToUnicodeEx
 Windows::Win32::TryCreatePackageDependency
+Windows::Win32::WM_SETICON
 extras::ISwapChainPanelNative::SetSwapChain
 extras::IWindowNative::get_WindowHandle
 extras::D2D1CreateFactory
