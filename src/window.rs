@@ -5,6 +5,7 @@ use waterui::window::{
     UserAttention, Window as WaterUiWindow, WindowBackground, WindowLevel, WindowState, WindowStyle,
 };
 use waterui_core::Environment;
+use waterui_layout::Size;
 use windows_core::Interface;
 
 #[allow(clippy::wildcard_imports)] // the generated namespace
@@ -119,6 +120,7 @@ pub fn open_window(
     install_state_writeback(&window, &desc.state, &desc.level, &content)?;
     install_level(&window, &desc.level, &content);
     install_attention(&window, &desc.attention, &content)?;
+    install_resize_increments(&window, desc.resize_increments.as_ref(), &content);
 
     window.Activate()?;
     Ok(window)
@@ -163,11 +165,19 @@ fn install_state_writeback(
         };
         let next = match overlapped.State() {
             Ok(OverlappedPresenterState::Maximized) => WindowState::Maximized,
+            Ok(OverlappedPresenterState::Minimized) => WindowState::Minimized,
             Ok(OverlappedPresenterState::Restored) => WindowState::Normal,
             _ => return,
         };
         let current = state.snapshot();
-        if matches!(current, WindowState::Normal | WindowState::Maximized) && current != next {
+        if matches!(
+            current,
+            WindowState::Normal
+                | WindowState::Minimized
+                | WindowState::Maximized
+                | WindowState::Fullscreen
+        ) && current != next
+        {
             state.set(next);
         }
     })?;
@@ -204,9 +214,7 @@ fn install_level(window: &Window, level: &nami::Computed<WindowLevel>, content: 
 }
 
 /// Attention → `FlashWindowEx`; the window gaining focus settles the
-/// request, and `resize_increments` has no Win32 counterpart (it would
-/// need `WM_SIZING` filtering, which `WinUI` windows cannot host), so it
-/// is ignored.
+/// request.
 fn install_attention(
     window: &Window,
     attention: &nami::Binding<Option<UserAttention>>,
@@ -255,51 +263,187 @@ fn app_window(window: &Window) -> AppWindow {
 fn apply_window_state(window: &Window, state: WindowState) {
     match state {
         WindowState::Closed => window.Close().expect("Window::Close"),
-        WindowState::Normal
-        | WindowState::Minimized
-        | WindowState::Maximized
-        | WindowState::Fullscreen => {
+        WindowState::Fullscreen => {
             let app_window = app_window(window);
-            match state {
-                WindowState::Fullscreen => {
-                    let full_screen =
-                        FullScreenPresenter::Create().expect("FullScreenPresenter::new");
+            let full_screen = FullScreenPresenter::Create().expect("FullScreenPresenter::new");
+            app_window
+                .SetPresenter(
+                    &full_screen
+                        .cast::<AppWindowPresenter>()
+                        .expect("AppWindowPresenter"),
+                )
+                .expect("AppWindow::SetPresenter");
+        }
+        WindowState::Normal | WindowState::Minimized | WindowState::Maximized => {
+            let app_window = app_window(window);
+            // A non-overlapped presenter (fullscreen) owns the window;
+            // switch back to the overlapped presenter before driving it,
+            // and leave minimized so maximize/restore can take effect.
+            let overlapped = app_window
+                .Presenter()
+                .and_then(|p| p.cast::<OverlappedPresenter>())
+                .unwrap_or_else(|_| {
                     app_window
-                        .SetPresenter(
-                            &full_screen
-                                .cast::<AppWindowPresenter>()
-                                .expect("AppWindowPresenter"),
-                        )
-                        .expect("AppWindow::SetPresenter");
-                }
-                WindowState::Normal | WindowState::Minimized | WindowState::Maximized => {
-                    let overlapped = app_window
+                        .SetPresenterByKind(AppWindowPresenterKind::Overlapped)
+                        .expect("AppWindow::SetPresenterByKind");
+                    app_window
                         .Presenter()
                         .and_then(|p| p.cast::<OverlappedPresenter>())
-                        .expect("default presenter is OverlappedPresenter");
-                    match state {
-                        WindowState::Normal => {
-                            overlapped.Restore().expect("OverlappedPresenter::Restore");
-                        }
-                        WindowState::Minimized => {
-                            overlapped
-                                .Minimize()
-                                .expect("OverlappedPresenter::Minimize");
-                        }
-                        WindowState::Maximized => {
-                            overlapped
-                                .Maximize()
-                                .expect("OverlappedPresenter::Maximize");
-                        }
-                        WindowState::Closed | WindowState::Fullscreen => {
-                            unreachable!("outer match filters both arms")
-                        }
-                    }
+                        .expect("overlapped presenter after SetPresenterByKind")
+                });
+            match state {
+                WindowState::Normal => {
+                    overlapped.Restore().expect("OverlappedPresenter::Restore");
                 }
-                WindowState::Closed => unreachable!("outer match filters the Closed arm"),
+                WindowState::Minimized => {
+                    overlapped
+                        .Minimize()
+                        .expect("OverlappedPresenter::Minimize");
+                }
+                WindowState::Maximized => {
+                    if overlapped.State().ok() == Some(OverlappedPresenterState::Minimized) {
+                        overlapped.Restore().expect("OverlappedPresenter::Restore");
+                    }
+                    overlapped
+                        .Maximize()
+                        .expect("OverlappedPresenter::Maximize");
+                }
+                WindowState::Closed | WindowState::Fullscreen => {
+                    unreachable!("outer match filters both arms")
+                }
             }
         }
     }
+}
+
+fn window_hwnd(window: &Window) -> HWND {
+    window
+        .cast::<IWindowNative>()
+        .ok()
+        .and_then(|native| {
+            let mut hwnd: HWND = core::ptr::null_mut();
+            unsafe { native.WindowHandle(&raw mut hwnd) }.ok().ok()?;
+            if hwnd.is_null() { None } else { Some(hwnd) }
+        })
+        .expect("IWindowNative::WindowHandle")
+}
+
+/// Latest increment in logical points, written by the computed watcher and
+/// read by the subclass proc — both only ever run on the UI thread.
+struct ResizeIncrements {
+    width: f32,
+    height: f32,
+}
+
+/// Subclass id for the resize-increment hook; arbitrary but unique per window.
+const RESIZE_INCREMENT_SUBCLASS_ID: usize = 0x5755_5249; // "WURI"
+
+/// `resize_increments` → an HWND subclass snapping `WM_SIZING` rects to whole
+/// multiples of the increment, measured on the client area in the window's
+/// own DPI.
+fn install_resize_increments(
+    window: &Window,
+    increments: Option<&nami::Computed<Size>>,
+    content: &UIElement,
+) {
+    let Some(increments) = increments else {
+        return;
+    };
+    let hwnd = window_hwnd(window);
+    let initial = increments.snapshot();
+    let shared = Box::into_raw(Box::new(ResizeIncrements {
+        width: initial.width,
+        height: initial.height,
+    }));
+    let installed = unsafe {
+        SetWindowSubclass(
+            hwnd,
+            Some(resize_increment_subclass),
+            RESIZE_INCREMENT_SUBCLASS_ID,
+            shared as usize,
+        )
+    };
+    if !installed.as_bool() {
+        drop(unsafe { Box::from_raw(shared) });
+        panic!("SetWindowSubclass failed");
+    }
+    let queue = window.DispatcherQueue().expect("Window::DispatcherQueue");
+    let (_, guard) = subscribe_then_get(increments, move |ctx| {
+        let size = ctx.into_value();
+        let queue = queue.clone();
+        enqueue_on_ui_thread(&queue, move || {
+            // SAFETY: `shared` is owned by the subclass until WM_NCDESTROY,
+            // which runs on this same UI thread.
+            unsafe {
+                (*shared).width = size.width;
+                (*shared).height = size.height;
+            }
+        });
+    });
+    store_watcher_guards(&framework(content), vec![guard]);
+}
+
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    reason = "WMSZ_* edge codes are small positive ints; snapped extents are clamped to i32 by the RECT domain"
+)]
+unsafe extern "system" fn resize_increment_subclass(
+    hwnd: HWND,
+    msg: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+    uidsubclass: usize,
+    dwrefdata: usize,
+) -> LRESULT {
+    if msg == WM_SIZING as u32 {
+        // SAFETY: `dwrefdata` is the `ResizeIncrements` box handed to
+        // `SetWindowSubclass`; it is released on WM_NCDESTROY below, and every
+        // access happens on the window's UI thread.
+        let increments = unsafe { &*(dwrefdata as *const ResizeIncrements) };
+        let dpi = unsafe { GetDpiForWindow(hwnd) };
+        let scale = f64::from(dpi) / 96.0;
+        let step_x = f64::from(increments.width) * scale;
+        let step_y = f64::from(increments.height) * scale;
+        // SAFETY: `lparam` points at the proposed window `RECT` for the
+        // duration of the message; `GetClientRect` writes `client`.
+        unsafe {
+            let rect = &mut *(lparam as *mut RECT);
+            let mut client = RECT::default();
+            // The BOOL reports failure only for an invalid window; this HWND
+            // is alive while its subclass procs run.
+            let _ = GetClientRect(hwnd, &raw mut client);
+            // Snap the client extent, not the frame: the WM_SIZING rect
+            // includes the non-client border, so subtract it first.
+            let frame_w = (rect.right - rect.left) - (client.right - client.left);
+            let frame_h = (rect.bottom - rect.top) - (client.bottom - client.top);
+            let edge = wparam as i32;
+            if step_x > 0.0 {
+                let client_w = rect.right - rect.left - frame_w;
+                let snapped = ((f64::from(client_w) / step_x).round() * step_x) as i32 + frame_w;
+                match edge {
+                    WMSZ_LEFT | WMSZ_TOPLEFT | WMSZ_BOTTOMLEFT => rect.left = rect.right - snapped,
+                    _ => rect.right = rect.left + snapped,
+                }
+            }
+            if step_y > 0.0 {
+                let client_h = rect.bottom - rect.top - frame_h;
+                let snapped = ((f64::from(client_h) / step_y).round() * step_y) as i32 + frame_h;
+                match edge {
+                    WMSZ_TOP | WMSZ_TOPLEFT | WMSZ_TOPRIGHT => rect.top = rect.bottom - snapped,
+                    _ => rect.bottom = rect.top + snapped,
+                }
+            }
+        }
+        return 1;
+    }
+    if msg == WM_NCDESTROY as u32 {
+        unsafe {
+            let _ = RemoveWindowSubclass(hwnd, Some(resize_increment_subclass), uidsubclass);
+            drop(Box::from_raw(dwrefdata as *mut ResizeIncrements));
+        }
+    }
+    unsafe { DefSubclassProc(hwnd, msg, wparam, lparam) }
 }
 
 fn apply_window_level(overlapped: &OverlappedPresenter, level: WindowLevel) {
@@ -309,15 +453,7 @@ fn apply_window_level(overlapped: &OverlappedPresenter, level: WindowLevel) {
 }
 
 fn apply_attention(window: &Window, request: Option<UserAttention>) {
-    let hwnd = window
-        .cast::<IWindowNative>()
-        .ok()
-        .and_then(|native| {
-            let mut hwnd: HWND = core::ptr::null_mut();
-            unsafe { native.WindowHandle(&raw mut hwnd) }.ok().ok()?;
-            if hwnd.is_null() { None } else { Some(hwnd) }
-        })
-        .expect("IWindowNative::WindowHandle");
+    let hwnd = window_hwnd(window);
     // Critical flashes caption and taskbar until the window is focused;
     // informational flashes the taskbar button briefly.
     let (flags, count) = match request {
