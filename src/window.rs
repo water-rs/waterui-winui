@@ -2,7 +2,10 @@
 
 use std::cell::RefCell;
 use std::rc::Rc;
-use waterui::window::{Window as WaterUiWindow, WindowState, WindowStyle};
+use waterui::window::{
+    PresentMode, Window as WaterUiWindow, WindowColorRange, WindowColorSpace, WindowState,
+    WindowStyle,
+};
 
 use waterui::graphics::peniko::{ImageAlphaType, ImageData, ImageFormat};
 use waterui_core::Environment;
@@ -26,6 +29,7 @@ pub fn open_window(
     env: &Environment,
     renderer: &mut WinUiRenderer,
 ) -> windows_core::Result<Window> {
+    check_window_output(desc.present_mode, desc.color_space);
     let window = Window::new()?;
 
     // Content.
@@ -158,6 +162,29 @@ fn apply_window_style(window: &Window, style: WindowStyle) -> windows_core::Resu
         overlapped.SetBorderAndTitleBar(chrome, chrome)?;
     }
     Ok(())
+}
+
+/// Checks the window's creation-time output requests against what `WinUI`
+/// can do.
+///
+/// A `WinUI` window is composited by DWM in step with the display, and
+/// Windows applies the display's advanced-colour mode to the whole desktop;
+/// neither takes a per-window request. A preferred colour range leaves the
+/// system's choice in place; unsynchronized presentation, or a required
+/// range beyond standard, cannot be honoured and is an error.
+fn check_window_output(present_mode: PresentMode, color_space: Option<WindowColorSpace>) {
+    assert!(
+        present_mode == PresentMode::DisplaySynchronized,
+        "WinUI cannot present a window unsynchronized from the display: DWM composites every \
+         window and offers no per-window presentation control"
+    );
+    if let Some(WindowColorSpace::Required(range)) = color_space {
+        assert!(
+            range == WindowColorRange::Standard,
+            "WinUI cannot guarantee {range:?} window output: Windows takes no per-window colour \
+             request"
+        );
+    }
 }
 
 /// Shows the window's reactive icon and keeps showing its changes, holding
