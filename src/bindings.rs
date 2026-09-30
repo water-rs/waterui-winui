@@ -1,6 +1,7 @@
 windows_core::link!("api-ms-win-appmodel-runtime-l1-1-5.dll" "system" fn AddPackageDependency(packagedependencyid : windows_core::PCWSTR, rank : i32, options : AddPackageDependencyOptions, packagedependencycontext : *mut PACKAGEDEPENDENCY_CONTEXT, packagefullname : *mut windows_core::PWSTR) -> windows_core::HRESULT);
 windows_core::link!("ole32.dll" "system" fn CoInitializeEx(pvreserved : *const core::ffi::c_void, dwcoinit : u32) -> windows_core::HRESULT);
 windows_core::link!("d2d1.dll" "system" fn D2D1CreateFactory(factorytype : D2D1_FACTORY_TYPE, riid : *const windows_core::GUID, pfactoryoptions : *const D2D1_FACTORY_OPTIONS, ppifactory : *mut *mut core::ffi::c_void) -> windows_core::HRESULT);
+windows_core::link!("user32.dll" "system" fn FlashWindowEx(pfwi : *const FLASHWINFO) -> windows_core::BOOL);
 windows_core::link!("kernel32.dll" "system" fn GetCurrentPackageFullName(packagefullnamelength : *mut u32, packagefullname : windows_core::PWSTR) -> i32);
 windows_core::link!("user32.dll" "system" fn GetDpiForWindow(hwnd : HWND) -> u32);
 windows_core::link!("user32.dll" "system" fn GetKeyboardLayout(idthread : u32) -> HKL);
@@ -520,6 +521,33 @@ impl windows_core::RuntimeName for AppWindow {
 }
 unsafe impl Send for AppWindow {}
 unsafe impl Sync for AppWindow {}
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AppWindowChangedEventArgs(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(
+    AppWindowChangedEventArgs,
+    windows_core::IUnknown,
+    windows_core::IInspectable
+);
+impl windows_core::RuntimeType for AppWindowChangedEventArgs {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_class::<Self, IAppWindowChangedEventArgs>();
+}
+unsafe impl windows_core::Interface for AppWindowChangedEventArgs {
+    type Vtable = <IAppWindowChangedEventArgs as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID = <IAppWindowChangedEventArgs as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for AppWindowChangedEventArgs {
+    type Target = IAppWindowChangedEventArgs;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for AppWindowChangedEventArgs {
+    const NAME: &'static str = "Microsoft.UI.Windowing.AppWindowChangedEventArgs";
+}
+unsafe impl Send for AppWindowChangedEventArgs {}
+unsafe impl Sync for AppWindowChangedEventArgs {}
 #[repr(transparent)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AppWindowPresenter(windows_core::IUnknown);
@@ -6377,6 +6405,19 @@ impl windows_core::RuntimeName for ExpressionAnimation {
 }
 unsafe impl Send for ExpressionAnimation {}
 unsafe impl Sync for ExpressionAnimation {}
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct FLASHWINFO {
+    pub cbSize: u32,
+    pub hwnd: HWND,
+    pub dwFlags: u32,
+    pub uCount: u32,
+    pub dwTimeout: u32,
+}
+pub const FLASHW_ALL: i32 = 3;
+pub const FLASHW_STOP: i32 = 0;
+pub const FLASHW_TIMERNOFG: i32 = 12;
+pub const FLASHW_TRAY: i32 = 2;
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct FileAccessMode(pub i32);
@@ -8237,6 +8278,35 @@ impl IAppWindow {
             (windows_core::Interface::vtable(self).Show)(windows_core::Interface::as_raw(self)).ok()
         }
     }
+    pub(crate) fn Changed<F>(&self, handler: F) -> windows_core::Result<windows_core::EventRevoker>
+    where
+        F: Fn(windows_core::Ref<AppWindow>, windows_core::Ref<AppWindowChangedEventArgs>) + 'static,
+    {
+        let handler: TypedEventHandler<AppWindow, AppWindowChangedEventArgs> = {
+            let com = windows_core::imp::DelegateBox::<
+                TypedEventHandler<AppWindow, AppWindowChangedEventArgs>,
+                F,
+            >::new(
+                &TypedEventHandlerBox::<AppWindow, AppWindowChangedEventArgs, F>::VTABLE,
+                handler,
+            );
+            unsafe { core::mem::transmute(windows_core::imp::box_new(com)) }
+        };
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            let token__ = (windows_core::Interface::vtable(self).Changed)(
+                windows_core::Interface::as_raw(self),
+                windows_core::Interface::as_raw(&handler),
+                &mut result__,
+            )
+            .map(|| result__)?;
+            Ok(windows_core::EventRevoker::new(
+                self.clone(),
+                token__,
+                windows_core::Interface::vtable(self).RemoveChanged,
+            ))
+        }
+    }
 }
 #[repr(C)]
 pub struct IAppWindow_Vtbl {
@@ -8280,6 +8350,14 @@ pub struct IAppWindow_Vtbl {
     ) -> windows_core::HRESULT,
     SetPresenterByKind: usize,
     pub Show: unsafe extern "system" fn(*mut core::ffi::c_void) -> windows_core::HRESULT,
+    ShowWithActivation: usize,
+    pub Changed: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
+        *mut i64,
+    ) -> windows_core::HRESULT,
+    pub RemoveChanged:
+        unsafe extern "system" fn(*mut core::ffi::c_void, i64) -> windows_core::HRESULT,
 }
 windows_core::imp::define_interface!(
     IAppWindow2,
@@ -8321,6 +8399,46 @@ pub struct IAppWindow2_Vtbl {
     MoveInZOrderBelow: usize,
     pub ResizeClient:
         unsafe extern "system" fn(*mut core::ffi::c_void, SizeInt32) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(
+    IAppWindowChangedEventArgs,
+    IAppWindowChangedEventArgs_Vtbl,
+    0x2182bc5d_fdac_5c3e_bf37_7d8d684e9d1d
+);
+impl windows_core::RuntimeType for IAppWindowChangedEventArgs {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+impl IAppWindowChangedEventArgs {
+    pub(crate) fn DidPresenterChange(&self) -> windows_core::Result<bool> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).DidPresenterChange)(
+                windows_core::Interface::as_raw(self),
+                &mut result__,
+            )
+            .map(|| result__)
+        }
+    }
+    pub(crate) fn DidSizeChange(&self) -> windows_core::Result<bool> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).DidSizeChange)(
+                windows_core::Interface::as_raw(self),
+                &mut result__,
+            )
+            .map(|| result__)
+        }
+    }
+}
+#[repr(C)]
+pub struct IAppWindowChangedEventArgs_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
+    DidPositionChange: usize,
+    pub DidPresenterChange:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut bool) -> windows_core::HRESULT,
+    pub DidSizeChange:
+        unsafe extern "system" fn(*mut core::ffi::c_void, *mut bool) -> windows_core::HRESULT,
 }
 windows_core::imp::define_interface!(
     IAppWindowPresenter,
@@ -23248,6 +23366,25 @@ impl windows_core::RuntimeType for IOverlappedPresenter {
         windows_core::imp::ConstBuffer::for_interface::<Self>();
 }
 impl IOverlappedPresenter {
+    pub(crate) fn SetIsAlwaysOnTop(&self, value: bool) -> windows_core::Result<()> {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetIsAlwaysOnTop)(
+                windows_core::Interface::as_raw(self),
+                value,
+            )
+            .ok()
+        }
+    }
+    pub(crate) fn State(&self) -> windows_core::Result<OverlappedPresenterState> {
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            (windows_core::Interface::vtable(self).State)(
+                windows_core::Interface::as_raw(self),
+                &mut result__,
+            )
+            .map(|| result__)
+        }
+    }
     pub(crate) fn Maximize(&self) -> windows_core::Result<()> {
         unsafe {
             (windows_core::Interface::vtable(self).Maximize)(windows_core::Interface::as_raw(self))
@@ -23287,7 +23424,8 @@ pub struct IOverlappedPresenter_Vtbl {
     HasBorder: usize,
     HasTitleBar: usize,
     IsAlwaysOnTop: usize,
-    SetIsAlwaysOnTop: usize,
+    pub SetIsAlwaysOnTop:
+        unsafe extern "system" fn(*mut core::ffi::c_void, bool) -> windows_core::HRESULT,
     IsMaximizable: usize,
     SetIsMaximizable: usize,
     IsMinimizable: usize,
@@ -23296,7 +23434,10 @@ pub struct IOverlappedPresenter_Vtbl {
     SetIsModal: usize,
     IsResizable: usize,
     SetIsResizable: usize,
-    State: usize,
+    pub State: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut OverlappedPresenterState,
+    ) -> windows_core::HRESULT,
     pub Maximize: unsafe extern "system" fn(*mut core::ffi::c_void) -> windows_core::HRESULT,
     pub Minimize: unsafe extern "system" fn(*mut core::ffi::c_void) -> windows_core::HRESULT,
     pub Restore: unsafe extern "system" fn(*mut core::ffi::c_void) -> windows_core::HRESULT,
@@ -35924,6 +36065,35 @@ impl IWindow {
             .ok()
         }
     }
+    pub(crate) fn Activated<F>(
+        &self,
+        handler: F,
+    ) -> windows_core::Result<windows_core::EventRevoker>
+    where
+        F: Fn(
+                windows_core::Ref<windows_core::IInspectable>,
+                windows_core::Ref<WindowActivatedEventArgs>,
+            ) + 'static,
+    {
+        let handler: TypedEventHandler<windows_core::IInspectable, WindowActivatedEventArgs> = {
+            let com = windows_core::imp::DelegateBox::< TypedEventHandler < windows_core::IInspectable , WindowActivatedEventArgs > , F >::new (& TypedEventHandlerBox::< windows_core::IInspectable , WindowActivatedEventArgs , F >::VTABLE , handler) ;
+            unsafe { core::mem::transmute(windows_core::imp::box_new(com)) }
+        };
+        unsafe {
+            let mut result__ = core::mem::zeroed();
+            let token__ = (windows_core::Interface::vtable(self).Activated)(
+                windows_core::Interface::as_raw(self),
+                windows_core::Interface::as_raw(&handler),
+                &mut result__,
+            )
+            .map(|| result__)?;
+            Ok(windows_core::EventRevoker::new(
+                self.clone(),
+                token__,
+                windows_core::Interface::vtable(self).RemoveActivated,
+            ))
+        }
+    }
     pub(crate) fn Closed<F>(&self, handler: F) -> windows_core::Result<windows_core::EventRevoker>
     where
         F: Fn(windows_core::Ref<windows_core::IInspectable>, windows_core::Ref<WindowEventArgs>)
@@ -36008,8 +36178,13 @@ pub struct IWindow_Vtbl {
     ExtendsContentIntoTitleBar: usize,
     pub SetExtendsContentIntoTitleBar:
         unsafe extern "system" fn(*mut core::ffi::c_void, bool) -> windows_core::HRESULT,
-    Activated: usize,
-    RemoveActivated: usize,
+    pub Activated: unsafe extern "system" fn(
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
+        *mut i64,
+    ) -> windows_core::HRESULT,
+    pub RemoveActivated:
+        unsafe extern "system" fn(*mut core::ffi::c_void, i64) -> windows_core::HRESULT,
     pub Closed: unsafe extern "system" fn(
         *mut core::ffi::c_void,
         *mut core::ffi::c_void,
@@ -36073,6 +36248,19 @@ pub struct IWindow2_Vtbl {
         *mut core::ffi::c_void,
         *mut *mut core::ffi::c_void,
     ) -> windows_core::HRESULT,
+}
+windows_core::imp::define_interface!(
+    IWindowActivatedEventArgs,
+    IWindowActivatedEventArgs_Vtbl,
+    0xc723a5ea_82c4_5dd6_861b_70ef573b88d6
+);
+impl windows_core::RuntimeType for IWindowActivatedEventArgs {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_interface::<Self>();
+}
+#[repr(C)]
+pub struct IWindowActivatedEventArgs_Vtbl {
+    pub base__: windows_core::IInspectable_Vtbl,
 }
 windows_core::imp::define_interface!(
     IWindowEventArgs,
@@ -40982,6 +41170,22 @@ impl windows_core::RuntimeName for OverlappedPresenter {
 }
 unsafe impl Send for OverlappedPresenter {}
 unsafe impl Sync for OverlappedPresenter {}
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct OverlappedPresenterState(pub i32);
+impl OverlappedPresenterState {
+    pub const Maximized: Self = Self(0);
+    pub const Minimized: Self = Self(1);
+    pub const Restored: Self = Self(2);
+}
+impl windows_core::imp::TypeKind for OverlappedPresenterState {
+    type TypeKind = windows_core::imp::CopyType;
+}
+impl windows_core::RuntimeType for OverlappedPresenterState {
+    const SIGNATURE: windows_core::imp::ConstBuffer = windows_core::imp::ConstBuffer::from_slice(
+        b"enum(Microsoft.UI.Windowing.OverlappedPresenterState;i4)",
+    );
+}
 pub type PACKAGEDEPENDENCY_CONTEXT = *mut core::ffi::c_void;
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -49322,6 +49526,33 @@ impl windows_core::RuntimeName for Window {
 }
 unsafe impl Send for Window {}
 unsafe impl Sync for Window {}
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct WindowActivatedEventArgs(windows_core::IUnknown);
+windows_core::imp::interface_hierarchy!(
+    WindowActivatedEventArgs,
+    windows_core::IUnknown,
+    windows_core::IInspectable
+);
+impl windows_core::RuntimeType for WindowActivatedEventArgs {
+    const SIGNATURE: windows_core::imp::ConstBuffer =
+        windows_core::imp::ConstBuffer::for_class::<Self, IWindowActivatedEventArgs>();
+}
+unsafe impl windows_core::Interface for WindowActivatedEventArgs {
+    type Vtable = <IWindowActivatedEventArgs as windows_core::Interface>::Vtable;
+    const IID: windows_core::GUID = <IWindowActivatedEventArgs as windows_core::Interface>::IID;
+}
+impl core::ops::Deref for WindowActivatedEventArgs {
+    type Target = IWindowActivatedEventArgs;
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::mem::transmute(self) }
+    }
+}
+impl windows_core::RuntimeName for WindowActivatedEventArgs {
+    const NAME: &'static str = "Microsoft.UI.Xaml.WindowActivatedEventArgs";
+}
+unsafe impl Send for WindowActivatedEventArgs {}
+unsafe impl Sync for WindowActivatedEventArgs {}
 #[repr(transparent)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct WindowEventArgs(windows_core::IUnknown);
