@@ -31,14 +31,6 @@ pub fn open_window(
 ) -> windows_core::Result<Window> {
     let window = Window::new()?;
 
-    // Title bar style.
-    match desc.style {
-        WindowStyle::Titled => {}
-        WindowStyle::Borderless | WindowStyle::FullSizeContentView => {
-            window.SetExtendsContentIntoTitleBar(true)?;
-        }
-    }
-
     // Content.
     let content = renderer.render_any(desc.content.build(), env);
     window.SetContent(&content)?;
@@ -73,6 +65,24 @@ pub fn open_window(
                 .SetBackground(&solid_brush(&initial).expect("SolidColorBrush"))?;
             store_watcher_guards(&framework(&content), vec![guard]);
         }
+    }
+
+    // Reactive title bar style.
+    {
+        let queue = window.DispatcherQueue()?;
+        let weak = window.downgrade().expect("Window weak ref");
+        let (initial, guard) = subscribe_then_get(&desc.style, move |ctx| {
+            let style = ctx.into_value();
+            let weak = weak.clone();
+            let queue = queue.clone();
+            enqueue_on_ui_thread(&queue, move || {
+                if let Some(window) = weak.upgrade() {
+                    apply_window_style(&window, style).expect("apply window style");
+                }
+            });
+        });
+        apply_window_style(&window, initial)?;
+        store_watcher_guards(&framework(&content), vec![guard]);
     }
 
     // Reactive title.
@@ -349,6 +359,22 @@ fn app_window(window: &Window) -> AppWindow {
         .expect("Window::AppWindow")
 }
 
+/// Projects a [`WindowStyle`] onto the window's chrome.
+///
+/// `Titled` keeps the system title bar and border, `FullSizeContentView`
+/// extends the content into the title bar area under the caption buttons, and
+/// `Borderless` removes the border and title bar from the overlapped
+/// presenter. A full-screen presenter draws no chrome at all, so only the
+/// content-extension half applies while the window is full screen.
+fn apply_window_style(window: &Window, style: WindowStyle) -> windows_core::Result<()> {
+    window.SetExtendsContentIntoTitleBar(style == WindowStyle::FullSizeContentView)?;
+    let chrome = style != WindowStyle::Borderless;
+    let presenter = app_window(window).Presenter()?;
+    if let Ok(overlapped) = presenter.cast::<OverlappedPresenter>() {
+        overlapped.SetBorderAndTitleBar(chrome, chrome)?;
+    }
+    Ok(())
+}
 fn apply_window_state(window: &Window, state: WindowState) {
     match state {
         WindowState::Closed => window.Close().expect("Window::Close"),
