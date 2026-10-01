@@ -107,7 +107,8 @@ Microsoft::UI::Xaml::IUIElement::{CapturePointer, Focus, ReleasePointerCapture, 
 Microsoft::UI::Xaml::IUIElement::{add_PointerEntered, add_PointerExited, add_PointerMoved, add_PointerPressed, add_PointerReleased, remove_PointerEntered, remove_PointerExited, remove_PointerMoved, remove_PointerPressed, remove_PointerReleased}
 Microsoft::UI::Xaml::IUIElementStatics::get_OpacityProperty
 Microsoft::UI::Xaml::IWindow2::{get_AppWindow, put_SystemBackdrop}
-Microsoft::UI::Xaml::IWindow::{Activate, Close, Closed, put_Content, put_Title}
+Microsoft::UI::Xaml::IWindow::{Activate, Close, Closed, Activated, put_Content, put_Title}
+Microsoft::UI::Xaml::WindowActivatedEventArgs
 Microsoft::UI::Xaml::IWindow::{put_ExtendsContentIntoTitleBar, SetTitleBar}
 Microsoft::UI::Xaml::IXamlRoot::{get_RasterizationScale, add_Changed, remove_Changed}
 Microsoft::UI::Xaml::Input::IPointerRoutedEventArgs::{GetCurrentPoint, get_Pointer}
@@ -141,6 +142,27 @@ Windows::Win32::E_FAIL
 Windows::Win32::ERROR_INSUFFICIENT_BUFFER
 Windows::Win32::GetCurrentPackageFullName
 Windows::Win32::GetDpiForWindow
+Windows::Win32::GetClientRect
+Windows::Win32::SetWindowSubclass
+Windows::Win32::RemoveWindowSubclass
+Windows::Win32::DefSubclassProc
+Windows::Win32::WM_SIZING
+Windows::Win32::WM_NCDESTROY
+Windows::Win32::WMSZ_LEFT
+Windows::Win32::WMSZ_TOP
+Windows::Win32::WMSZ_RIGHT
+Windows::Win32::WMSZ_BOTTOM
+Windows::Win32::WMSZ_TOPLEFT
+Windows::Win32::WMSZ_TOPRIGHT
+Windows::Win32::WMSZ_BOTTOMLEFT
+Windows::Win32::WMSZ_BOTTOMRIGHT
+Windows::Win32::RECT
+Windows::Win32::FlashWindowEx
+Windows::Win32::FLASHWINFO
+Windows::Win32::FLASHW_ALL
+Windows::Win32::FLASHW_TIMERNOFG
+Windows::Win32::FLASHW_STOP
+Windows::Win32::FLASHW_TRAY
 Windows::Win32::GetKeyboardLayout
 Windows::Win32::GetKeyboardState
 Windows::Win32::GetProcessHeap
@@ -187,7 +209,9 @@ Microsoft::UI::Xaml::IUIElement::{Measure, Arrange, get_DesiredSize, put_Visibil
 Microsoft::UI::Xaml::IUIElementStatics::get_VisibilityProperty
 Microsoft::UI::Xaml::IWindow::{get_Bounds, get_DispatcherQueue}
 Microsoft::UI::Xaml::IXamlRoot::get_Size
-Microsoft::UI::Windowing::IAppWindow::{MoveAndResize, Move, Resize, get_Position, get_Size, Hide, Show, Destroy, SetPresenter}
+Microsoft::UI::Windowing::IAppWindow::{MoveAndResize, Move, Resize, get_Position, get_Size, Hide, Show, Destroy, SetPresenter, SetPresenterByKind, add_Changed, remove_Changed}
+Microsoft::UI::Windowing::AppWindowChangedEventArgs
+Microsoft::UI::Windowing::IAppWindowChangedEventArgs::{get_DidSizeChange, get_DidPresenterChange}
 Microsoft::UI::Windowing::IAppWindow2::{ResizeClient, get_ClientSize}
 Microsoft::UI::Windowing::OverlappedPresenter::Create
 Microsoft::UI::Windowing::IOverlappedPresenter::SetBorderAndTitleBar
@@ -277,7 +301,8 @@ Windows::Storage::Streams::DataReader::{FromBuffer, ReadBytes, Close}
 Windows::Storage::Streams::IBuffer
 Microsoft::UI::Xaml::Media::Imaging::RenderTargetBitmap::{PixelWidth, PixelHeight}
 Microsoft::UI::Xaml::Window::get_AppWindow
-Microsoft::UI::Windowing::IOverlappedPresenter::{Minimize, Maximize, Restore}
+Microsoft::UI::Windowing::IOverlappedPresenter::{Minimize, Maximize, Restore, put_IsAlwaysOnTop, get_State}
+Microsoft::UI::Windowing::OverlappedPresenterState::{Minimized, Maximized, Restored}
 Microsoft::UI::Windowing::FullScreenPresenter::Create
 Microsoft::UI::Windowing::IAppWindowPresenter
 Microsoft::UI::Windowing::AppWindowPresenter
