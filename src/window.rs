@@ -113,36 +113,7 @@ pub fn open_window(
     })?;
     store_event_revoker(&framework(&content), revoker);
 
-    // React to programmatic state changes.
-    {
-        let queue = window.DispatcherQueue()?;
-        let weak = window.downgrade().expect("Window weak ref");
-        let hwnd_watcher = hwnd_state.clone();
-        let (_, guard) = subscribe_then_get(&desc.state, move |ctx| {
-            let new_state = ctx.into_value();
-            let weak = weak.clone();
-            let queue = queue.clone();
-            let hwnd_watcher = hwnd_watcher.clone();
-            enqueue_on_ui_thread(&queue, move || {
-                if let Some(window) = weak.upgrade()
-                    && hwnd_watcher.borrow().hwnd.is_some()
-                {
-                    apply_window_state(&window, new_state);
-                }
-            });
-        });
-        store_watcher_guards(&framework(&content), vec![guard]);
-        let weak = window.downgrade().expect("Window weak ref");
-        let state = desc.state.clone();
-        hwnd_state.borrow_mut().when_created(move |_hwnd| {
-            if let Some(window) = weak.upgrade() {
-                let state = state.snapshot();
-                if state != WindowState::Normal {
-                    apply_window_state(&window, state);
-                }
-            }
-        });
-    }
+    install_state(&window, &desc.state, &content, &hwnd_state)?;
 
     install_state_writeback(&window, &desc.state, &desc.level, &content)?;
     install_level(&window, &desc.level, &content, &hwnd_state);
@@ -156,6 +127,45 @@ pub fn open_window(
 
     window.Activate()?;
     Ok(window)
+}
+
+/// Applies programmatic changes of the window's open state while the native
+/// window exists, and replays the state the window was declared with once
+/// activation creates it.
+fn install_state(
+    window: &Window,
+    state: &nami::Binding<WindowState>,
+    content: &UIElement,
+    hwnd_state: &SharedHwnd,
+) -> windows_core::Result<()> {
+    let queue = window.DispatcherQueue()?;
+    let weak = window.downgrade().expect("Window weak ref");
+    let hwnd_watcher = hwnd_state.clone();
+    let (_, guard) = subscribe_then_get(state, move |ctx| {
+        let new_state = ctx.into_value();
+        let weak = weak.clone();
+        let queue = queue.clone();
+        let hwnd_watcher = hwnd_watcher.clone();
+        enqueue_on_ui_thread(&queue, move || {
+            if let Some(window) = weak.upgrade()
+                && hwnd_watcher.borrow().hwnd.is_some()
+            {
+                apply_window_state(&window, new_state);
+            }
+        });
+    });
+    store_watcher_guards(&framework(content), vec![guard]);
+    let weak = window.downgrade().expect("Window weak ref");
+    let state = state.clone();
+    hwnd_state.borrow_mut().when_created(move |_hwnd| {
+        if let Some(window) = weak.upgrade() {
+            let state = state.snapshot();
+            if state != WindowState::Normal {
+                apply_window_state(&window, state);
+            }
+        }
+    });
+    Ok(())
 }
 
 /// Feeds the live `HWND` into `hwnd_state` once activation creates the
