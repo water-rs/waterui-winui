@@ -5,7 +5,7 @@ use std::rc::Rc;
 
 use nami::Signal;
 use waterui::window::{
-    UserAttention, Window as WaterUiWindow, WindowBackground, WindowLevel, WindowState, WindowStyle,
+    UserAttention, Window as WaterUiWindow, WindowLevel, WindowState, WindowStyle,
 };
 use waterui_core::Environment;
 use waterui_layout::Size;
@@ -43,28 +43,27 @@ pub fn open_window(
         window.SetTitleBar(&toolbar_element)?;
     }
 
-    // Background.
-    match &desc.background {
-        WindowBackground::Opaque => {}
-        WindowBackground::Color(color) => {
-            let resolved = color.resolve(env);
-            let root = content.clone();
-            let queue = window.DispatcherQueue()?;
-            let (initial, guard) = subscribe_then_get(&resolved, move |ctx| {
-                let color = ctx.into_value();
-                let root = root.clone();
-                let queue = queue.clone();
-                enqueue_on_ui_thread(&queue, move || {
-                    root.cast::<Panel>()
-                        .expect("window content is a Panel")
-                        .SetBackground(&solid_brush(&color).expect("SolidColorBrush"))
-                        .expect("Panel::SetBackground");
-                });
+    // Background: the theme background for an opaque window, the declared
+    // colour otherwise, following both a switch between the two and a change
+    // of the colour.
+    {
+        let resolved = waterui::window::resolve_background(&desc.background, env);
+        let root = content.clone();
+        let queue = window.DispatcherQueue()?;
+        let (initial, guard) = subscribe_then_get(&resolved, move |ctx| {
+            let color = ctx.into_value();
+            let root = root.clone();
+            let queue = queue.clone();
+            enqueue_on_ui_thread(&queue, move || {
+                root.cast::<Panel>()
+                    .expect("window content is a Panel")
+                    .SetBackground(&solid_brush(&color).expect("SolidColorBrush"))
+                    .expect("Panel::SetBackground");
             });
-            root_cast_panel(&content)?
-                .SetBackground(&solid_brush(&initial).expect("SolidColorBrush"))?;
-            store_watcher_guards(&framework(&content), vec![guard]);
-        }
+        });
+        root_cast_panel(&content)?
+            .SetBackground(&solid_brush(&initial).expect("SolidColorBrush"))?;
+        store_watcher_guards(&framework(&content), vec![guard]);
     }
 
     // Reactive title bar style.
