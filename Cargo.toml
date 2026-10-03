@@ -65,6 +65,9 @@ waterui-url = { version = "0.5.0", features = ["std"] }
 nami = "=0.11.1"
 jiff = "0.2"
 executor-core = "0.7.1"
+# Direct dependency only for `Builder::propagate_panic`, which executor-core's
+# `spawn_local` does not expose; the same 4.7 line executor-core resolves.
+async-task = "4.7"
 native-executor = "0.8"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3.23", default-features = false, features = ["fmt", "std"] }
