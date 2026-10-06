@@ -13,7 +13,7 @@ use windows_core::Interface;
 
 #[allow(clippy::wildcard_imports)] // the generated namespace
 use crate::bindings::*;
-use crate::executor::enqueue_on_ui_thread;
+use crate::executor::{UiThread, enqueue_on_ui_thread};
 use crate::renderer::WinUiRenderer;
 use crate::util::{
     framework, solid_brush, store_event_revoker, store_watcher_guards, subscribe_then_get,
@@ -30,6 +30,7 @@ pub fn open_window(
     renderer: &mut WinUiRenderer,
 ) -> windows_core::Result<Window> {
     let window = Window::new()?;
+    let ui = renderer.ui_thread().clone();
 
     // Content.
     let content = renderer.render_any(desc.content.build(), env);
@@ -86,13 +87,13 @@ pub fn open_window(
 
     // Reactive title.
     {
-        let queue = window.DispatcherQueue()?;
+        let ui = ui.clone();
         let weak = window.downgrade().expect("Window weak ref");
         let (initial, guard) = subscribe_then_get(&desc.title, move |ctx| {
             let title = ctx.into_value();
             let weak = weak.clone();
-            let queue = queue.clone();
-            enqueue_on_ui_thread(&queue, move || {
+            let ui = ui.clone();
+            ui.enqueue(move || {
                 if let Some(window) = weak.upgrade() {
                     window.SetTitle(title.as_ref()).expect("Window::SetTitle");
                 }
@@ -129,17 +130,12 @@ pub fn open_window(
     })?;
     store_event_revoker(&framework(&content), revoker);
 
-    install_state(&window, &desc.state, &content, &hwnd_state)?;
+    install_state(&window, &desc.state, &content, &hwnd_state, &ui);
 
     install_state_writeback(&window, &desc.state, &desc.level, &content)?;
-    install_level(&window, &desc.level, &content, &hwnd_state);
-    install_attention(&window, &desc.attention, &content, &hwnd_state)?;
-    install_resize_increments(
-        &window,
-        desc.resize_increments.as_ref(),
-        &content,
-        &hwnd_state,
-    );
+    install_level(&window, &desc.level, &content, &hwnd_state, &ui);
+    install_attention(&window, &desc.attention, &content, &hwnd_state, &ui)?;
+    install_resize_increments(desc.resize_increments.as_ref(), &content, &hwnd_state, &ui);
 
     window.Activate()?;
     Ok(window)
@@ -153,16 +149,17 @@ fn install_state(
     state: &nami::Binding<WindowState>,
     content: &UIElement,
     hwnd_state: &SharedHwnd,
-) -> windows_core::Result<()> {
-    let queue = window.DispatcherQueue()?;
+    ui: &UiThread,
+) {
+    let ui = ui.clone();
     let weak = window.downgrade().expect("Window weak ref");
     let hwnd_watcher = hwnd_state.clone();
     let (_, guard) = subscribe_then_get(state, move |ctx| {
         let new_state = ctx.into_value();
         let weak = weak.clone();
-        let queue = queue.clone();
+        let ui = ui.clone();
         let hwnd_watcher = hwnd_watcher.clone();
-        enqueue_on_ui_thread(&queue, move || {
+        ui.enqueue(move || {
             if let Some(window) = weak.upgrade()
                 && hwnd_watcher.borrow().hwnd.is_some()
             {
@@ -181,7 +178,6 @@ fn install_state(
             }
         }
     });
-    Ok(())
 }
 
 /// Feeds the live `HWND` into `hwnd_state` once activation creates the
@@ -273,16 +269,17 @@ fn install_level(
     level: &nami::Computed<WindowLevel>,
     content: &UIElement,
     hwnd_state: &SharedHwnd,
+    ui: &UiThread,
 ) {
-    let queue = window.DispatcherQueue().expect("Window::DispatcherQueue");
+    let ui = ui.clone();
     let weak = window.downgrade().expect("Window weak ref");
     let hwnd_watcher = hwnd_state.clone();
     let (_, guard) = subscribe_then_get(level, move |ctx| {
         let level = ctx.into_value();
         let weak = weak.clone();
-        let queue = queue.clone();
+        let ui = ui.clone();
         let hwnd_watcher = hwnd_watcher.clone();
-        enqueue_on_ui_thread(&queue, move || {
+        ui.enqueue(move || {
             if let Some(window) = weak.upgrade()
                 && hwnd_watcher.borrow().hwnd.is_some()
                 && let Ok(overlapped) = app_window(&window)
@@ -314,16 +311,17 @@ fn install_attention(
     attention: &nami::Binding<Option<UserAttention>>,
     content: &UIElement,
     hwnd_state: &SharedHwnd,
+    ui: &UiThread,
 ) -> windows_core::Result<()> {
-    let queue = window.DispatcherQueue()?;
+    let ui = ui.clone();
     let weak = window.downgrade().expect("Window weak ref");
     let hwnd_watcher = hwnd_state.clone();
     let (_, guard) = subscribe_then_get(attention, move |ctx| {
         let request = ctx.into_value();
         let weak = weak.clone();
-        let queue = queue.clone();
+        let ui = ui.clone();
         let hwnd_watcher = hwnd_watcher.clone();
-        enqueue_on_ui_thread(&queue, move || {
+        ui.enqueue(move || {
             if let Some(window) = weak.upgrade()
                 && hwnd_watcher.borrow().hwnd.is_some()
             {
@@ -516,10 +514,10 @@ const RESIZE_INCREMENT_SUBCLASS_ID: usize = 0x5755_5249; // "WURI"
 /// multiples of the increment, measured on the client area in the window's
 /// own DPI.
 fn install_resize_increments(
-    window: &Window,
     increments: Option<&nami::Computed<Size>>,
     content: &UIElement,
     hwnd_state: &SharedHwnd,
+    ui: &UiThread,
 ) {
     let Some(increments) = increments else {
         return;
@@ -545,13 +543,13 @@ fn install_resize_increments(
             panic!("SetWindowSubclass failed");
         }
     });
-    let queue = window.DispatcherQueue().expect("Window::DispatcherQueue");
+    let ui = ui.clone();
     let hwnd_watcher = hwnd_state.clone();
     let (_, guard) = subscribe_then_get(increments, move |ctx| {
         let size = ctx.into_value();
-        let queue = queue.clone();
+        let ui = ui.clone();
         let hwnd_watcher = hwnd_watcher.clone();
-        enqueue_on_ui_thread(&queue, move || {
+        ui.enqueue(move || {
             // SAFETY: `shared` is owned by the subclass until WM_NCDESTROY
             // frees it on this same UI thread — while the window is not yet
             // destroyed the box is either awaiting the subclass or live in

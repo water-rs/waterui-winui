@@ -36,7 +36,7 @@ use windows_core::Interface;
 #[allow(clippy::wildcard_imports)] // the generated namespace
 use crate::bindings::*;
 use crate::component::WinUiComponent;
-use crate::executor::{DispatcherQueueExecutor, enqueue_on_ui_thread};
+use crate::executor::{DispatcherQueueExecutor, UiThread};
 use crate::renderer::WinUiRenderer;
 use crate::util::{
     framework, store_event_revoker, store_retained, store_watcher_guards, subscribe_then_get,
@@ -127,6 +127,7 @@ struct VideoCoordinator {
     controller: PlayerController,
     on_event: Option<BoundVideoEventHandler>,
     executor: DispatcherQueueExecutor,
+    ui: UiThread,
     /// Initial adaptive bitrate in bits per second (from the network policy).
     initial_bitrate: u32,
     /// The item currently set as the player's source.
@@ -619,12 +620,13 @@ impl VideoCoordinator {
 
         let weak = Rc::downgrade(this);
         let initial_bitrate = this.initial_bitrate;
-        let queue = this.executor.queue().clone();
+        let ui = this.ui.clone();
         this.executor.spawn_local(async move {
             let resolved = resolve_media_source(&item).await;
-            // `WinRT` async completions resume on an arbitrary thread — the
-            // player pipeline is only driven on the dispatcher.
-            enqueue_on_ui_thread(&queue, move || {
+            // The `WinRT` completion may fire on any thread, but it only wakes
+            // this task: `spawn_local` resumes it on the dispatcher, so this
+            // continuation already runs on the UI thread.
+            ui.enqueue(move || {
                 let Some(this) = weak.upgrade() else {
                     return;
                 };
@@ -734,15 +736,15 @@ where
     S: Signal<Guard = BoxWatcherGuard>,
     A: Fn(&Rc<VideoCoordinator>, S::Output) + 'static,
 {
-    let queue = this.executor.queue().clone();
+    let ui = this.ui.clone();
     let weak = Rc::downgrade(this);
     let apply = Rc::new(apply);
     subscribe_then_get(signal, move |ctx| {
         let value = ctx.into_value();
         let weak = weak.clone();
         let apply = apply.clone();
-        let queue = queue.clone();
-        enqueue_on_ui_thread(&queue, move || {
+        let ui = ui.clone();
+        ui.enqueue(move || {
             if let Some(this) = weak.upgrade() {
                 apply(&this, value);
             }
@@ -809,6 +811,7 @@ fn video_element(
         controller: playback.controller.clone(),
         on_event: playback.on_event,
         executor: renderer.executor().clone(),
+        ui: renderer.ui_thread().clone(),
         initial_bitrate,
         item: RefCell::new(None),
         item_revokers: RefCell::new(Vec::new()),

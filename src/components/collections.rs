@@ -15,7 +15,7 @@ use windows_core::{Interface, Ref, implement};
 #[allow(clippy::wildcard_imports)] // the generated namespace
 use crate::bindings::*;
 use crate::component::WinUiComponent;
-use crate::executor::enqueue_on_ui_thread;
+use crate::executor::{UiThread, enqueue_on_ui_thread};
 use crate::renderer::WinUiRenderer;
 use crate::util::{framework, store_event_revoker, store_watcher_guards};
 
@@ -30,6 +30,7 @@ struct RowFactory {
     snapshot:
         Rc<RefCell<waterui_core::views::AnyViewsSnapshot<waterui::component::list::ListItem>>>,
     env: Environment,
+    ui: UiThread,
 }
 
 impl IElementFactory_Impl for RowFactory_Impl {
@@ -46,8 +47,7 @@ impl IElementFactory_Impl for RowFactory_Impl {
             .borrow()
             .get_view(index)
             .expect("ItemsRepeater only requests indices below the items-source count");
-        let mut renderer =
-            WinUiRenderer::for_current_thread().expect("row rendering requires the UI thread");
+        let mut renderer = WinUiRenderer::new(self.ui.clone());
         Ok(renderer.render_any(item.content, &self.env))
     }
 
@@ -83,6 +83,7 @@ impl WinUiComponent for Native<ListConfig> {
         let factory: IElementFactory = RowFactory {
             snapshot: row_snapshot.clone(),
             env: env.clone(),
+            ui: renderer.ui_thread().clone(),
         }
         .into();
         repeater
@@ -98,16 +99,16 @@ impl WinUiComponent for Native<ListConfig> {
 
         // Reactive refresh: a changed collection swaps the items source and
         // the repeater re-virtualizes against the new count.
-        let queue = renderer.executor().queue().clone();
+        let ui = renderer.ui_thread().clone();
         let weak = repeater
             .downgrade()
             .expect("ItemsRepeater supports weak refs");
         let mut guards = vec![contents.watch(.., move |ctx, _change| {
             let snapshot = ctx.value().clone();
             let weak = weak.clone();
-            let queue = queue.clone();
+            let ui = ui.clone();
             let row_snapshot = row_snapshot.clone();
-            enqueue_on_ui_thread(&queue, move || {
+            ui.enqueue(move || {
                 // The row snapshot and the item count swap together on the
                 // dispatcher: a layout pass between the two would index past
                 // the end of one of them.
@@ -344,15 +345,15 @@ fn render_tab_view(
     let element = framework(&tab_view.cast().expect("UIElement"));
     store_event_revoker(&element, revoker);
 
-    let queue = renderer.executor().queue().clone();
+    let ui = renderer.ui_thread().clone();
     let weak = tab_view.downgrade().expect("weak ref");
     guards.push(layout.selection.watch(move |ctx| {
         let value = ctx.into_value();
         let weak = weak.clone();
-        let queue = queue.clone();
+        let ui = ui.clone();
         let ids = ids.clone();
         let items = items.clone();
-        enqueue_on_ui_thread(&queue, move || {
+        ui.enqueue(move || {
             if let Some(tab_view) = weak.upgrade()
                 && let Some(index) = ids.iter().position(|id| *id == value)
             {
@@ -476,15 +477,15 @@ fn render_sidebar_tabs(
     let element = framework(&nav.cast().expect("UIElement"));
     store_event_revoker(&element, revoker);
 
-    let queue = renderer.executor().queue().clone();
+    let ui = renderer.ui_thread().clone();
     let weak = nav.downgrade().expect("weak ref");
     guards.push(layout.selection.watch(move |ctx| {
         let value = ctx.into_value();
         let weak = weak.clone();
-        let queue = queue.clone();
+        let ui = ui.clone();
         let ids = ids.clone();
         let show = show.clone();
-        enqueue_on_ui_thread(&queue, move || {
+        ui.enqueue(move || {
             if let Some(nav) = weak.upgrade()
                 && let Some(index) = ids.iter().position(|id| *id == value)
             {

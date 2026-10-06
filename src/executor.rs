@@ -5,6 +5,8 @@
 //! the same queue `Application::Start` pumps on the UI thread.
 
 use std::future::Future;
+use std::marker::PhantomData;
+use std::rc::Rc;
 use std::sync::{Arc, Mutex, OnceLock};
 
 use executor_core::{
@@ -15,11 +17,56 @@ use executor_core::{
 #[allow(clippy::wildcard_imports)] // the generated namespace
 use crate::bindings::*;
 
-/// Schedules `f` on the `WinUI` dispatcher at normal priority.
+/// Schedules `f` on the `WinUI` dispatcher at normal priority, from any thread.
 ///
-/// The callback itself runs on the UI thread; it may capture non-`Send` state
-/// because `DispatcherQueueHandler` is a synchronous delegate invoked in place.
-pub fn enqueue_on_ui_thread(queue: &DispatcherQueue, f: impl FnOnce() + 'static) {
+/// `f` crosses to the dispatcher's thread, so it must be `Send`; work that
+/// captures UI-thread-only state goes through [`UiThread::enqueue`] instead.
+pub fn enqueue_on_ui_thread(queue: &DispatcherQueue, f: impl FnOnce() + Send + 'static) {
+    enqueue(queue, f);
+}
+
+/// The calling thread's `DispatcherQueue` as a capability to schedule
+/// non-`Send` work back onto that same thread.
+///
+/// It is neither `Send` nor `Sync`, so it never leaves the thread it was
+/// created on: every closure [`Self::enqueue`] accepts was built on the thread
+/// that runs it. The runner creates it inside `Application::Start` and hands it
+/// to the renderer, which passes it to the components that need it.
+#[derive(Debug, Clone)]
+pub struct UiThread {
+    queue: DispatcherQueue,
+    _thread_bound: PhantomData<Rc<()>>,
+}
+
+impl UiThread {
+    /// Binds the calling thread's dispatcher.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the calling thread has no `DispatcherQueue`.
+    pub(crate) fn for_current_thread() -> windows_core::Result<Self> {
+        Ok(Self {
+            queue: DispatcherQueue::GetForCurrentThread()?,
+            _thread_bound: PhantomData,
+        })
+    }
+
+    /// Schedules `f` on this thread's dispatcher at normal priority.
+    pub fn enqueue(&self, f: impl FnOnce() + 'static) {
+        enqueue(&self.queue, f);
+    }
+
+    /// The underlying dispatcher, for handing to code that schedules `Send`
+    /// work from other threads.
+    pub const fn queue(&self) -> &DispatcherQueue {
+        &self.queue
+    }
+}
+
+/// The unchecked enqueue both entry points share: the generated
+/// `DispatcherQueueHandler::new` carries no `Send` bound, so the callers
+/// establish that `f` may run on the dispatcher's thread.
+fn enqueue(queue: &DispatcherQueue, f: impl FnOnce() + 'static) {
     // `DispatcherQueueHandler` requires `Fn`, but an enqueued task is invoked
     // exactly once, so the closure is wrapped for a single take.
     let f = std::cell::RefCell::new(Some(f));
@@ -42,15 +89,14 @@ pub struct DispatcherQueueExecutor {
 }
 
 impl DispatcherQueueExecutor {
-    /// Wraps the dispatcher of the calling (UI) thread.
-    pub fn for_current_thread() -> windows_core::Result<Self> {
-        Ok(Self {
-            queue: DispatcherQueue::GetForCurrentThread()?,
-        })
+    /// Posts to the dispatcher of `ui`'s thread.
+    pub fn new(ui: &UiThread) -> Self {
+        Self {
+            queue: ui.queue().clone(),
+        }
     }
 
-    /// The underlying `WinUI` dispatcher, for watcher callbacks that must hop
-    /// back to the UI thread.
+    /// The underlying `WinUI` dispatcher.
     pub const fn queue(&self) -> &DispatcherQueue {
         &self.queue
     }

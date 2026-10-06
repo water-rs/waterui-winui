@@ -34,7 +34,7 @@ impl WinUiComponent for Native<TextConfig> {
                 .expect("TextBlock::SetTextTrimming");
         }
 
-        let queue = renderer.executor().queue().clone();
+        let ui = renderer.ui_thread().clone();
 
         // Content updates rebuild the inline runs.
         let weak = block.downgrade().expect("TextBlock supports weak refs");
@@ -43,10 +43,10 @@ impl WinUiComponent for Native<TextConfig> {
         let content_guard = config.content.watch(move |ctx| {
             let content = ctx.into_value();
             let weak = weak.clone();
-            let queue = queue.clone();
+            let ui = ui.clone();
             let env = env_for_watch.clone();
             let alignment = alignment_signal.snapshot();
-            enqueue_on_ui_thread(&queue, move || {
+            ui.enqueue(move || {
                 if let Some(block) = weak.upgrade() {
                     apply_styled_content(&block, &content, alignment, &env);
                 }

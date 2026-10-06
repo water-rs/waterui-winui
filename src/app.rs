@@ -15,7 +15,7 @@ use crate::app_shim::{create_application, install_xaml_controls_resources};
 #[allow(clippy::wildcard_imports)] // the generated namespace
 use crate::bindings::*;
 use crate::bootstrap::{bootstrap_runtime, initialize_ui_thread};
-use crate::executor::{DeferredDispatcherExecutor, DispatcherQueueExecutor};
+use crate::executor::{DeferredDispatcherExecutor, UiThread};
 use crate::renderer::WinUiRenderer;
 use crate::window::open_window;
 
@@ -240,9 +240,9 @@ pub fn run_app(make_app: impl FnOnce() -> App) -> windows_core::Result<()> {
                 // The subscription lives for the process lifetime.
                 core::mem::forget(revoker);
 
-                let executor = DispatcherQueueExecutor::for_current_thread()?;
                 waterui_locale::start_system_locale_listener();
-                let mut renderer = WinUiRenderer::new(executor.clone());
+                let mut renderer = WinUiRenderer::new(UiThread::for_current_thread()?);
+                let executor = renderer.executor().clone();
 
                 // GPU-backed content (`GpuContentView`, `FilteredView`) shares
                 // one device, created on the dispatcher and installed into the

@@ -38,7 +38,7 @@ use windows_core::Interface;
 #[allow(clippy::wildcard_imports)] // the generated namespace
 use crate::bindings::*;
 use crate::component::WinUiComponent;
-use crate::executor::DispatcherQueueExecutor;
+use crate::executor::{DispatcherQueueExecutor, UiThread};
 
 /// Context passed to component handlers during dispatch.
 ///
@@ -78,6 +78,7 @@ impl RenderContext {
 pub struct WinUiRenderer {
     dispatcher: ViewDispatcher<(), RenderContext, UIElement>,
     executor: DispatcherQueueExecutor,
+    ui: UiThread,
 }
 
 impl WinUiRenderer {
@@ -89,23 +90,29 @@ impl WinUiRenderer {
     ///
     /// Returns an error when the current thread has no `DispatcherQueue`.
     pub fn for_current_thread() -> windows_core::Result<Self> {
-        Ok(Self::new(DispatcherQueueExecutor::for_current_thread()?))
+        Ok(Self::new(UiThread::for_current_thread()?))
     }
 
-    /// Creates a renderer on an explicit executor.
+    /// Creates a renderer for the UI thread `ui` belongs to.
     #[must_use]
-    pub fn new(executor: DispatcherQueueExecutor) -> Self {
+    pub fn new(ui: UiThread) -> Self {
         let mut dispatcher = ViewDispatcher::new();
         Self::register_components(&mut dispatcher);
         Self {
             dispatcher,
-            executor,
+            executor: DispatcherQueueExecutor::new(&ui),
+            ui,
         }
     }
 
     /// The executor that marshals work onto the UI thread.
     pub(crate) fn executor(&self) -> &DispatcherQueueExecutor {
         &self.executor
+    }
+
+    /// The UI-thread capability components schedule non-`Send` work through.
+    pub(crate) fn ui_thread(&self) -> &UiThread {
+        &self.ui
     }
 
     /// Renders a view to a `WinUI` element.

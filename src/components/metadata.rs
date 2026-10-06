@@ -1028,13 +1028,12 @@ fn register_context_menu(dispatcher: &mut ViewDispatcher<(), RenderContext, UIEl
             let element = renderer.render_any(metadata.content, env);
             let fe = framework(&element);
             let flyout = MenuFlyout::new().expect("MenuFlyout::new");
-            let queue = DispatcherQueue::GetForCurrentThread()
-                .expect("DispatcherQueue::GetForCurrentThread");
+            let ui = renderer.ui_thread().clone();
             crate::components::menus::rebuild_flyout(
                 &flyout,
                 &metadata.value.items.snapshot(),
                 env,
-                &queue,
+                &ui,
             );
             element
                 .SetContextFlyout(&flyout)
@@ -1043,11 +1042,11 @@ fn register_context_menu(dispatcher: &mut ViewDispatcher<(), RenderContext, UIEl
             let weak = flyout.downgrade().expect("weak MenuFlyout");
             let (_initial, guard) = subscribe_then_get(&metadata.value.items, {
                 let env = env.clone();
-                let queue = queue.clone();
+                let ui = ui.clone();
                 move |ctx| {
                     let items = ctx.into_value();
                     if let Some(flyout) = weak.upgrade() {
-                        crate::components::menus::rebuild_flyout(&flyout, &items, &env, &queue);
+                        crate::components::menus::rebuild_flyout(&flyout, &items, &env, &ui);
                     }
                 }
             });
