@@ -1029,15 +1029,36 @@ fn register_context_menu(dispatcher: &mut ViewDispatcher<(), RenderContext, UIEl
             let fe = framework(&element);
             let flyout = MenuFlyout::new().expect("MenuFlyout::new");
             let ui = renderer.ui_thread().clone();
+            // A `.context_menu`'s chords are live only while the menu is
+            // open (the Hydrolysis contract): the rows park their
+            // accelerators, the flyout arms them on `Opened` and clears
+            // them on `Closed`.
+            let accelerators =
+                Rc::new(crate::components::menus::ContextFlyoutAccelerators::default());
+            let arming = crate::components::menus::ShortcutArming::WhileOpen(accelerators.clone());
             crate::components::menus::rebuild_flyout(
                 &flyout,
                 &metadata.value.items.snapshot(),
                 env,
                 &ui,
+                &arming,
             );
             element
                 .SetContextFlyout(&flyout)
                 .expect("UIElement::SetContextFlyout");
+
+            let flyout_base = flyout
+                .cast::<FlyoutBase>()
+                .expect("MenuFlyout is a FlyoutBase");
+            let armed = accelerators.clone();
+            let revoker = flyout_base
+                .Opened(move |_sender, _args| armed.opened())
+                .expect("FlyoutBase::Opened");
+            store_event_revoker(&fe, revoker);
+            let revoker = flyout_base
+                .Closed(move |_sender, _args| accelerators.closed())
+                .expect("FlyoutBase::Closed");
+            store_event_revoker(&fe, revoker);
 
             let weak = flyout.downgrade().expect("weak MenuFlyout");
             let (_initial, guard) = subscribe_then_get(&metadata.value.items, {
@@ -1046,7 +1067,9 @@ fn register_context_menu(dispatcher: &mut ViewDispatcher<(), RenderContext, UIEl
                 move |ctx| {
                     let items = ctx.into_value();
                     if let Some(flyout) = weak.upgrade() {
-                        crate::components::menus::rebuild_flyout(&flyout, &items, &env, &ui);
+                        crate::components::menus::rebuild_flyout(
+                            &flyout, &items, &env, &ui, &arming,
+                        );
                     }
                 }
             });
