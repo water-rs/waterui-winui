@@ -18,7 +18,7 @@ use waterui::theme::{
     installed_color_scheme, installed_color_signal,
 };
 use waterui_core::Environment;
-use waterui_graphics::color::{ResolvedColor, Srgb};
+use waterui_graphics::color::{Srgb, WorkingColor};
 use waterui_text::font::{
     Body, Caption, FontWeight, Footnote, Headline, ResolvedFont, Subheadline, Title,
 };
@@ -37,21 +37,21 @@ type Resources = IMap<IInspectable, IInspectable>;
 /// `Theme` values are never overridden.
 #[derive(Clone)]
 struct ThemeSignals {
-    background: Binding<ResolvedColor>,
-    surface: Binding<ResolvedColor>,
-    surface_variant: Binding<ResolvedColor>,
-    border: Binding<ResolvedColor>,
-    foreground: Binding<ResolvedColor>,
-    muted_foreground: Binding<ResolvedColor>,
-    accent: Binding<ResolvedColor>,
-    accent_container: Binding<ResolvedColor>,
-    accent_foreground: Binding<ResolvedColor>,
-    tertiary: Binding<ResolvedColor>,
-    tertiary_container: Binding<ResolvedColor>,
-    selection_container: Binding<ResolvedColor>,
-    selection_foreground: Binding<ResolvedColor>,
-    error: Binding<ResolvedColor>,
-    error_foreground: Binding<ResolvedColor>,
+    background: Binding<WorkingColor>,
+    surface: Binding<WorkingColor>,
+    surface_variant: Binding<WorkingColor>,
+    border: Binding<WorkingColor>,
+    foreground: Binding<WorkingColor>,
+    muted_foreground: Binding<WorkingColor>,
+    accent: Binding<WorkingColor>,
+    accent_container: Binding<WorkingColor>,
+    accent_foreground: Binding<WorkingColor>,
+    tertiary: Binding<WorkingColor>,
+    tertiary_container: Binding<WorkingColor>,
+    selection_container: Binding<WorkingColor>,
+    selection_foreground: Binding<WorkingColor>,
+    error: Binding<WorkingColor>,
+    error_foreground: Binding<WorkingColor>,
     color_scheme: Binding<ColorScheme>,
 }
 
@@ -117,7 +117,7 @@ pub fn attach(root: &FrameworkElement, env: &Environment) -> windows_core::Resul
     Ok(())
 }
 
-fn install_missing<T: 'static>(env: &mut Environment, value: &Binding<ResolvedColor>) {
+fn install_missing<T: 'static>(env: &mut Environment, value: &Binding<WorkingColor>) {
     if installed_color_signal::<T>(env).is_none() {
         install_color_signal::<T>(env, value.clone().computed());
     }
@@ -215,7 +215,7 @@ fn lookup(resources: &Resources, key: &str) -> windows_core::Result<IInspectable
 
 /// Resolves a theme brush resource to a flat color: solid brushes carry the
 /// color directly, acrylic brushes expose it as their tint.
-fn brush_color(resources: &Resources, key: &str) -> ResolvedColor {
+fn brush_color(resources: &Resources, key: &str) -> WorkingColor {
     let value = lookup(resources, key)
         .unwrap_or_else(|error| panic!("WinUI theme resource {key} missing: {error}"));
     if let Ok(solid) = value.cast::<SolidColorBrush>() {
@@ -227,10 +227,10 @@ fn brush_color(resources: &Resources, key: &str) -> ResolvedColor {
     panic!("WinUI theme resource {key} is not a color brush");
 }
 
-fn winui_color(color: Color) -> ResolvedColor {
-    let mut resolved = ResolvedColor::from_srgb(Srgb::new_u8(color.r, color.g, color.b));
-    resolved.opacity = f32::from(color.a) / 255.0;
-    resolved
+fn winui_color(color: Color) -> WorkingColor {
+    Srgb::new_u8(color.r, color.g, color.b)
+        .resolve()
+        .with_alpha(f32::from(color.a) / 255.0)
 }
 
 /// Extracts size and weight from a `TextBlock` theme style (`BodyTextBlockStyle`

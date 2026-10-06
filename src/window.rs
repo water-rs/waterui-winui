@@ -113,12 +113,19 @@ pub fn open_window(
     }));
     install_hwnd_gate(&window, &content, hwnd_state.clone())?;
 
-    // Close request (user presses X) must mirror into `state`.
+    // Close request (user presses X) must mirror into `state`. Under
+    // `LastWindowPolicy::Quit` the tracked count reaching zero files a
+    // `Required` termination — the `winit` runner's
+    // `exit_if_last_window_closed` idiom.
     let state = desc.state.clone();
     let closed_hwnd_state = hwnd_state.clone();
+    let termination = env.get::<crate::app::WindowTermination>().cloned();
     let revoker = window.Closed(move |_sender, _args| {
         closed_hwnd_state.borrow_mut().destroyed();
         state.set(WindowState::Closed);
+        if let Some(termination) = &termination {
+            termination.closed();
+        }
     })?;
     store_event_revoker(&framework(&content), revoker);
 

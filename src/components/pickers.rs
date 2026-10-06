@@ -18,8 +18,8 @@ use crate::component::WinUiComponent;
 use crate::executor::enqueue_on_ui_thread;
 use crate::renderer::WinUiRenderer;
 use crate::util::{
-    framework, resolved_color_to_winui, store_event_revoker, store_watcher_guards,
-    subscribe_then_get,
+    framework, store_event_revoker, store_watcher_guards, subscribe_then_get,
+    working_color_to_winui,
 };
 
 /// Ticks between the `WinRT` epoch (1601-01-01 UTC) and the Unix epoch.
@@ -718,7 +718,7 @@ impl WinUiComponent for Native<ColorPickerConfig> {
             .expect("ColorPicker::SetIsAlphaEnabled");
         let initial = config.value.snapshot().resolve(env).snapshot();
         picker
-            .SetColor(resolved_color_to_winui(&initial))
+            .SetColor(working_color_to_winui(&initial))
             .expect("ColorPicker::SetColor");
 
         let flyout = Flyout::new().expect("Flyout::new");
@@ -789,7 +789,7 @@ impl WinUiComponent for Native<ColorPickerConfig> {
                 let weak_swatch = weak_swatch.clone();
                 let queue = queue.clone();
                 enqueue_on_ui_thread(&queue, move || {
-                    let winui = resolved_color_to_winui(&color);
+                    let winui = working_color_to_winui(&color);
                     if let Some(picker) = weak_picker.upgrade()
                         && picker.Color().expect("Color") != winui
                     {

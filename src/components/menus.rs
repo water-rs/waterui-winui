@@ -1,7 +1,8 @@
 //! Menu realization: `ResolvedMenu` as a `DropDownButton` + `MenuFlyout`.
 
 use nami::Signal;
-use waterui_controls::menu::{ResolvedMenu, ResolvedMenuItem};
+use waterui::app::Quit;
+use waterui_controls::menu::{CommandExt, ResolvedMenu, ResolvedMenuItem, Shortcut};
 use waterui_core::{Environment, Native};
 use windows_core::Interface;
 
@@ -162,6 +163,19 @@ fn build_menu_item(
             entry
                 .cast()
                 .expect("MenuFlyoutSubItem is a MenuFlyoutItemBase")
+        }
+        ResolvedMenuItem::Quit => {
+            let quit = env
+                .get::<Quit>()
+                .expect("Quit is installed before rendering")
+                .clone();
+            // The platform quit command — hydrolysis's `quit_command`
+            // spells it the same way for Windows.
+            let command = "Exit"
+                .action(move || quit.request())
+                .shortcut(Shortcut::new("q").command())
+                .resolve(env);
+            build_menu_item(&ResolvedMenuItem::Command(command), env, queue)
         }
     }
 }
