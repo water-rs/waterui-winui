@@ -13,6 +13,7 @@ use std::time::{Duration, Instant};
 
 use executor_core::{LocalExecutor, Task};
 use waterui_core::Environment;
+use waterui_core::layout::{ProposalSize, ViewDimensions};
 use waterui_graphics::draw::kurbo;
 use waterui_graphics::filter_view::ErasedEffect;
 use waterui_graphics::filtrate::{
@@ -36,6 +37,8 @@ struct SurfaceState {
     view: GpuContentView,
     /// The `GpuContent` the view installed on this surface.
     content: RefCell<Box<dyn GpuContent>>,
+    /// The last constraints and dimensions returned to XAML.
+    measured: RefCell<Option<(ProposalSize, ViewDimensions)>>,
     /// Physical pixel size of the swapchain.
     size: Cell<(u32, u32)>,
     /// Pixels per logical point, from the last `SizeChanged`.
@@ -92,6 +95,7 @@ pub(crate) fn render_gpu_content(
     let state = Rc::new(SurfaceState {
         view,
         content: RefCell::new(gpu_content),
+        measured: RefCell::new(None),
         size: Cell::new((0, 0)),
         scale: Cell::new(1.0),
         frame_pending: Cell::new(false),
@@ -99,6 +103,18 @@ pub(crate) fn render_gpu_content(
         last_frame: Cell::new(None),
         start: Instant::now(),
     });
+
+    let host_panel = crate::component::measured_host(&element, {
+        let state = state.clone();
+        move |proposal| {
+            let answer = state.content.borrow().measure(proposal);
+            *state.measured.borrow_mut() = Some((proposal, answer.clone()));
+            answer
+        }
+    })
+    .expect("MeasuredHost::compose");
+    let host: UIElement = host_panel.cast().expect("MeasuredHost is a UIElement");
+    let weak_host = host.downgrade().expect("MeasuredHost::downgrade");
 
     // `GpuContent::setup` is synchronous and runs on the dispatcher thread.
     // The `Context::redraw` handle it stashes may fire from any thread — a
@@ -123,6 +139,18 @@ pub(crate) fn render_gpu_content(
                     let Some(state) = weak.upgrade() else {
                         break;
                     };
+                    let previous = state
+                        .measured
+                        .borrow()
+                        .as_ref()
+                        .map(|(proposal, dimensions)| (*proposal, dimensions.clone()));
+                    if let Some((proposal, previous)) = previous {
+                        let changed = state.content.borrow().measure(proposal) != previous;
+                        if changed && let Some(host) = weak_host.upgrade() {
+                            host.InvalidateMeasure()
+                                .expect("UIElement::InvalidateMeasure");
+                        }
+                    }
                     pump_frame(&surface, &runtime, &state, format);
                 }
             })
@@ -223,7 +251,7 @@ pub(crate) fn render_gpu_content(
         crate::util::store_event_revoker(&fe, revoker);
     }
 
-    element
+    host
 }
 
 /// One bit per `SurfacePointerButton`, in declaration order — the tracked

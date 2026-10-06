@@ -206,7 +206,7 @@ extras::WINDOWSAPPSDK_RUNTIME_VERSION_MAJOR
 extras::WINDOWSAPPSDK_RUNTIME_VERSION_MINOR
 extras::WINDOWSAPPSDK_RUNTIME_VERSION_BUILD
 extras::WINDOWSAPPSDK_RUNTIME_VERSION_REVISION
-Microsoft::UI::Xaml::IUIElement::{Measure, Arrange, get_DesiredSize, put_Visibility, get_Visibility, put_ContextFlyout, get_ContextFlyout, UpdateLayout}
+Microsoft::UI::Xaml::IUIElement::{Measure, Arrange, get_DesiredSize, put_Visibility, get_Visibility, put_ContextFlyout, get_ContextFlyout, UpdateLayout, InvalidateMeasure}
 Microsoft::UI::Xaml::IUIElementStatics::get_VisibilityProperty
 Microsoft::UI::Xaml::IWindow::{get_Bounds, get_DispatcherQueue}
 Microsoft::UI::Xaml::IXamlRoot::get_Size
