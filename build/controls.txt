@@ -625,7 +625,8 @@ Microsoft::UI::Xaml::Visibility
 Microsoft::UI::Xaml::Media::Stretch
 Microsoft::UI::Xaml::Media::LinearGradientBrush::CreateInstance
 Microsoft::UI::Xaml::Media::ILinearGradientBrush::{put_StartPoint, put_EndPoint}
-Microsoft::UI::Xaml::Media::IGradientBrush::get_GradientStops
+Microsoft::UI::Xaml::Media::IGradientBrush::{get_GradientStops, put_SpreadMethod, put_ColorInterpolationMode}
+Microsoft::UI::Xaml::Media::ColorInterpolationMode
 Microsoft::UI::Xaml::Controls::Orientation
 Microsoft::UI::Xaml::Media::GradientStop::CreateInstance
 Microsoft::UI::Xaml::Media::IGradientStop::{put_Color, put_Offset}
