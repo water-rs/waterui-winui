@@ -69,6 +69,17 @@ native-executor = "0.8"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3.23", default-features = false, features = ["fmt", "std"] }
 
+# The generation code lives in `build/bindgen.rs`, a module of `build.rs`,
+# so these are ordinary build dependencies of this package — a `path`
+# dependency on the `publish = false` tool would make `cargo publish` fail.
+[build-dependencies]
+sha2 = "0.10"
+ureq = "3"
+windows-bindgen = "0.100"
+windows-default = "0.100"
+windows-rdl = "0.100"
+zip = { version = "4", default-features = false, features = ["deflate"] }
+
 [target.'cfg(target_os = "windows")'.build-dependencies]
 windows-reactor-setup = { version = "0.100", optional = true }
 
