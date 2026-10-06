@@ -127,13 +127,10 @@ impl SessionEndState {
                     // dispatcher after `WM_ENDSESSION` unwinds. Repost it —
                     // `PeekMessageW` already removed it — and let the outer
                     // loop take it.
+                    let exit_code = i32::try_from(msg.wParam.cast_signed())
+                        .expect("WM_QUIT carries the i32 PostQuitMessage was given");
                     // SAFETY: posts WM_QUIT to this thread's own queue; no pointers are involved.
-                    unsafe {
-                        PostQuitMessage(
-                            i32::try_from(msg.wParam.cast_signed())
-                                .expect("WM_QUIT carries the i32 PostQuitMessage was given"),
-                        )
-                    };
+                    unsafe { PostQuitMessage(exit_code) };
                     return;
                 }
                 // SAFETY: `msg` was just filled by `PeekMessageW`.
