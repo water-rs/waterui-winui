@@ -16,10 +16,12 @@
 //! a required power path fails preparation rather than falling back silently.
 
 use std::cell::{Cell, RefCell};
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 use std::time::Duration;
 
+use async_channel::{Receiver, Sender, TrySendError};
 use executor_core::LocalExecutor;
+use executor_core::async_task::AsyncTask;
 use nami::Signal;
 use nami::watcher::BoxWatcherGuard;
 use waterui_core::{Environment, Native};
@@ -31,8 +33,9 @@ use waterui_video::video::{
     TrackCatalog, VideoProjection, VideoTrackInfo, VideoTrackSelection,
 };
 use waterui_video::{PlaybackPhase, PlayerController, RepeatMode};
-use windows_core::Interface;
+use windows_core::{IInspectable, InRef, Interface};
 
+use crate::background_events::background_handler;
 #[allow(clippy::wildcard_imports)] // the generated namespace
 use crate::bindings::*;
 use crate::component::WinUiComponent;
@@ -114,11 +117,48 @@ impl MediaTrackLabel for TimedMetadataTrack {
     }
 }
 
+/// What a `WinRT` media event reported, read on the background thread that
+/// raised it and applied to the coordinator on the `UI` thread.
+#[derive(Clone)]
+enum MediaEvent {
+    Opened,
+    Ended,
+    Failed { message: String },
+    BufferingStarted,
+    BufferingEnded,
+    StateChanged(MediaPlaybackState),
+    PositionChanged(f64),
+    DurationChanged(f64),
+    BufferLevel { buffered_ms: u32 },
+    SeekableRangesChanged,
+    NextReceived,
+    PreviousReceived,
+    TracksChanged,
+    TimedMetadataTracksChanged,
+    CueEntered(TimedMetadata),
+}
+
+/// Posts `event` to its coordinator. The channel is unbounded, so a send
+/// fails only once the coordinator, and with it the receiver, is gone: a
+/// handler still in flight during teardown, not an error.
+fn post(events: &Sender<MediaEvent>, event: MediaEvent) {
+    match events.try_send(event) {
+        Ok(()) | Err(TrySendError::Closed(_)) => {}
+        Err(TrySendError::Full(_)) => unreachable!("the media event channel is unbounded"),
+    }
+}
+
+/// The session a `MediaPlaybackSession` event was raised by.
+fn raising_session(sender: Option<&MediaPlaybackSession>) -> &MediaPlaybackSession {
+    sender.expect("MediaPlaybackSession events carry their session as the sender")
+}
+
 /// The native side of one rendered `Video`/`VideoPlayer`.
 ///
-/// Retained by the element's `Tag`; every `WinRT` event handler and nami
-/// watcher captures only a `Weak`, so dropping the element releases the whole
-/// coordinator (and the `MediaPlayer` it owns) without a reference cycle.
+/// Retained by the element's `Tag`; every nami watcher captures only a
+/// `Weak` and every `WinRT` event handler only a [`Sender`] of
+/// [`MediaEvent`]s, so dropping the element releases the whole coordinator
+/// (and the `MediaPlayer` it owns) without a reference cycle.
 struct VideoCoordinator {
     player: MediaPlayer,
     /// `IMediaPlayer3` — session, command manager, realtime flag, frame steps.
@@ -128,6 +168,12 @@ struct VideoCoordinator {
     on_event: Option<BoundVideoEventHandler>,
     executor: DispatcherQueueExecutor,
     ui: UiThread,
+    /// Cloned into every `WinRT` handler: the media events fire on background
+    /// threads, so the handlers post what they read instead of touching this
+    /// state.
+    events: Sender<MediaEvent>,
+    /// Owns the receiving end and applies each event on the `UI` thread.
+    _event_pump: AsyncTask<()>,
     /// Initial adaptive bitrate in bits per second (from the network policy).
     initial_bitrate: u32,
     /// The item currently set as the player's source.
@@ -467,41 +513,44 @@ impl VideoCoordinator {
             ) {
                 continue;
             }
-            let weak = Rc::downgrade(this);
+            let events = this.events.clone();
             let revoker = track
-                .CueEntered(move |sender, args| {
-                    let (Ok(track), Ok(args)) = (sender.ok(), args.ok()) else {
-                        return;
-                    };
-                    let (Ok(cue), Some(this)) = (args.Cue(), weak.upgrade()) else {
-                        return;
-                    };
-                    let message_data = cue
-                        .cast::<IDataCue>()
-                        .and_then(|data| data.Data())
-                        .and_then(|buffer| {
-                            let reader = DataReader::FromBuffer(&buffer)?;
-                            let mut bytes = vec![0u8; buffer.Length()? as usize];
-                            reader.ReadBytes(&mut bytes)?;
-                            Ok(bytes)
-                        })
-                        .unwrap_or_default();
-                    let id = cue.Id().ok().and_then(|s| s.parse().ok()).unwrap_or(0);
-                    this.emit(Event::TimedMetadata {
-                        metadata: TimedMetadata::new(
-                            track.DispatchType().unwrap_or_default(),
-                            cue.Id().unwrap_or_default(),
-                            id,
-                            Duration::from_secs_f64(timespan_seconds(
-                                cue.StartTime().unwrap_or_default(),
+                .CueEntered(background_handler::<TimedMetadataTrack, MediaCueEventArgs>(
+                    move |track, args| {
+                        let (Some(track), Some(args)) = (track, args) else {
+                            return;
+                        };
+                        let Ok(cue) = args.Cue() else {
+                            return;
+                        };
+                        let message_data = cue
+                            .cast::<IDataCue>()
+                            .and_then(|data| data.Data())
+                            .and_then(|buffer| {
+                                let reader = DataReader::FromBuffer(&buffer)?;
+                                let mut bytes = vec![0u8; buffer.Length()? as usize];
+                                reader.ReadBytes(&mut bytes)?;
+                                Ok(bytes)
+                            })
+                            .unwrap_or_default();
+                        let id = cue.Id().ok().and_then(|s| s.parse().ok()).unwrap_or(0);
+                        post(
+                            &events,
+                            MediaEvent::CueEntered(TimedMetadata::new(
+                                track.DispatchType().unwrap_or_default(),
+                                cue.Id().unwrap_or_default(),
+                                id,
+                                Duration::from_secs_f64(timespan_seconds(
+                                    cue.StartTime().unwrap_or_default(),
+                                )),
+                                Duration::from_secs_f64(timespan_seconds(
+                                    cue.Duration().unwrap_or_default(),
+                                )),
+                                message_data,
                             )),
-                            Duration::from_secs_f64(timespan_seconds(
-                                cue.Duration().unwrap_or_default(),
-                            )),
-                            message_data,
-                        ),
-                    });
-                })
+                        );
+                    },
+                ))
                 .expect("TimedMetadataTrack::CueEntered");
             this.cue_revokers.borrow_mut().push(revoker);
         }
@@ -544,46 +593,29 @@ impl VideoCoordinator {
 
         // Per-item track events rebuild the catalog and re-apply selections.
         this.item_revokers.borrow_mut().clear();
-        let mut revokers = Vec::new();
-        {
-            let this = Rc::downgrade(this);
-            revokers.push(
-                playback_item
-                    .AudioTracksChanged(move |_, _| {
-                        if let Some(this) = this.upgrade() {
-                            this.on_tracks_changed();
-                        }
-                    })
-                    .expect("MediaPlaybackItem::AudioTracksChanged"),
-            );
-        }
-        {
-            let this = Rc::downgrade(this);
-            revokers.push(
-                playback_item
-                    .VideoTracksChanged(move |_, _| {
-                        if let Some(this) = this.upgrade() {
-                            this.on_tracks_changed();
-                        }
-                    })
-                    .expect("MediaPlaybackItem::VideoTracksChanged"),
-            );
-        }
-        {
-            let this = Rc::downgrade(this);
-            revokers.push(
-                playback_item
-                    .TimedMetadataTracksChanged(move |_, _| {
-                        if let Some(this) = this.upgrade() {
-                            this.on_tracks_changed();
-                            if let Some(item) = this.item.borrow().clone() {
-                                Self::subscribe_timed_cues(&this, &item);
-                            }
-                        }
-                    })
-                    .expect("MediaPlaybackItem::TimedMetadataTracksChanged"),
-            );
-        }
+        let revokers = vec![
+            playback_item
+                .AudioTracksChanged(
+                    this.notify::<MediaPlaybackItem, windows_collections::IVectorChangedEventArgs>(
+                        MediaEvent::TracksChanged,
+                    ),
+                )
+                .expect("MediaPlaybackItem::AudioTracksChanged"),
+            playback_item
+                .VideoTracksChanged(
+                    this.notify::<MediaPlaybackItem, windows_collections::IVectorChangedEventArgs>(
+                        MediaEvent::TracksChanged,
+                    ),
+                )
+                .expect("MediaPlaybackItem::VideoTracksChanged"),
+            playback_item
+                .TimedMetadataTracksChanged(
+                    this.notify::<MediaPlaybackItem, windows_collections::IVectorChangedEventArgs>(
+                        MediaEvent::TimedMetadataTracksChanged,
+                    ),
+                )
+                .expect("MediaPlaybackItem::TimedMetadataTracksChanged"),
+        ];
         *this.item_revokers.borrow_mut() = revokers;
 
         *this.item.borrow_mut() = Some(playback_item.clone());
@@ -804,13 +836,17 @@ fn video_element(
     let initial_bitrate = u32::try_from(playback.playback_policy.network.initial_bandwidth().get())
         .unwrap_or(u32::MAX);
 
-    let coordinator = Rc::new(VideoCoordinator {
+    let (events, receiver) = async_channel::unbounded();
+    let executor = renderer.executor().clone();
+    let coordinator = Rc::new_cyclic(|coordinator| VideoCoordinator {
         player,
         player3,
         session,
         controller: playback.controller.clone(),
         on_event: playback.on_event,
-        executor: renderer.executor().clone(),
+        events,
+        _event_pump: VideoCoordinator::pump_events(&executor, coordinator.clone(), receiver),
+        executor,
         ui: renderer.ui_thread().clone(),
         initial_bitrate,
         item: RefCell::new(None),
@@ -851,23 +887,32 @@ fn video_element(
 }
 
 impl VideoCoordinator {
-    /// Lifts a coordinator action into a `WinRT` event handler that only runs
-    /// while the coordinator is alive.
-    fn on<T, A>(
-        this: &Rc<Self>,
-        f: impl Fn(&Self, &A) + 'static,
-    ) -> impl Fn(windows_core::Ref<'_, T>, windows_core::Ref<'_, A>) + 'static
+    /// A handler that posts `event` every time a payload-less event fires.
+    fn notify<S, A>(&self, event: MediaEvent) -> impl Fn(InRef<'_, S>, InRef<'_, A>) + 'static
     where
-        T: Interface + 'static,
-        A: Interface + 'static,
+        S: Interface,
+        A: Interface,
     {
-        let weak = Rc::downgrade(this);
-        move |_, args| {
-            let (Some(this), Ok(args)) = (weak.upgrade(), args.ok()) else {
-                return;
-            };
-            f(&this, args);
-        }
+        let events = self.events.clone();
+        background_handler::<S, A>(move |_, _| post(&events, event.clone()))
+    }
+
+    /// Like [`Self::notify`], for the events whose handlers have always
+    /// ignored a raise that carries no args.
+    fn notify_with_args<S, A>(
+        &self,
+        event: MediaEvent,
+    ) -> impl Fn(InRef<'_, S>, InRef<'_, A>) + 'static
+    where
+        S: Interface,
+        A: Interface,
+    {
+        let events = self.events.clone();
+        background_handler::<S, A>(move |_, args| {
+            if args.is_some() {
+                post(&events, event.clone());
+            }
+        })
     }
 
     /// Wires `MediaPlayer`, `MediaPlaybackSession`, and command-manager events
@@ -882,160 +927,150 @@ impl VideoCoordinator {
         store_event_revoker(
             fe,
             this.player
-                .MediaOpened(Self::on::<MediaPlayer, windows_core::IInspectable>(
-                    this,
-                    |this, _| {
-                        this.populate_track_catalog();
-                        this.apply_track_selections();
-                        if let Ok(duration) = this.session.NaturalDuration() {
-                            this.duration_seconds.set(timespan_seconds(duration));
-                        }
-                        this.update_live_window();
-                        this.phase.set(PlaybackPhase::Ready);
-                        this.emit(Event::PlaybackOutputPathChanged {
-                            path: PlaybackOutputPath::PlatformManaged,
-                        });
-                        this.emit(Event::ReadyToPlay);
-                    },
-                ))
+                .MediaOpened(this.notify_with_args::<MediaPlayer, IInspectable>(MediaEvent::Opened))
                 .expect("MediaPlayer::MediaOpened"),
         );
         store_event_revoker(
             fe,
             this.player
-                .MediaEnded(Self::on::<MediaPlayer, windows_core::IInspectable>(
-                    this,
-                    |this, _| {
-                        this.phase.set(PlaybackPhase::Ended);
-                        this.emit(Event::Ended);
-                        // `One` loops inside the pipeline; `All` advances through
-                        // the controller, which wraps at the end.
-                        if this.repeat.snapshot() != RepeatMode::One && this.has_next.snapshot() {
-                            let _ = this.controller.next();
-                        }
-                    },
-                ))
+                .MediaEnded(this.notify_with_args::<MediaPlayer, IInspectable>(MediaEvent::Ended))
                 .expect("MediaPlayer::MediaEnded"),
         );
+        let events = this.events.clone();
         store_event_revoker(
             fe,
             this.player
-                .MediaFailed(Self::on::<MediaPlayer, MediaPlayerFailedEventArgs>(
-                    this,
-                    |this, args| {
-                        this.phase.set(PlaybackPhase::Failed);
-                        this.emit(Event::Error {
-                            message: args
-                                .ErrorMessage()
-                                .unwrap_or_else(|_| String::from("media playback failed")),
-                        });
-                    },
-                ))
+                .MediaFailed(
+                    background_handler::<MediaPlayer, MediaPlayerFailedEventArgs>(
+                        move |_, args| {
+                            let Some(args) = args else {
+                                return;
+                            };
+                            post(
+                                &events,
+                                MediaEvent::Failed {
+                                    message: args
+                                        .ErrorMessage()
+                                        .unwrap_or_else(|_| String::from("media playback failed")),
+                                },
+                            );
+                        },
+                    ),
+                )
                 .expect("MediaPlayer::MediaFailed"),
         );
         store_event_revoker(
             fe,
             this.player
-                .BufferingStarted(Self::on::<MediaPlayer, windows_core::IInspectable>(
-                    this,
-                    |this, _| {
-                        this.phase.set(PlaybackPhase::Buffering);
-                        this.emit(Event::Buffering);
-                    },
-                ))
+                .BufferingStarted(
+                    this.notify_with_args::<MediaPlayer, IInspectable>(
+                        MediaEvent::BufferingStarted,
+                    ),
+                )
                 .expect("MediaPlayer::BufferingStarted"),
         );
         store_event_revoker(
             fe,
             this.player
-                .BufferingEnded(Self::on::<MediaPlayer, windows_core::IInspectable>(
-                    this,
-                    |this, _| {
-                        this.emit(Event::BufferingEnded);
-                    },
-                ))
+                .BufferingEnded(
+                    this.notify_with_args::<MediaPlayer, IInspectable>(MediaEvent::BufferingEnded),
+                )
                 .expect("MediaPlayer::BufferingEnded"),
         );
     }
 
+    /// Session events read the value they announce from the session that
+    /// raised them, on the raising thread, and post it.
     fn wire_session_events(this: &Rc<Self>, fe: &FrameworkElement) {
+        let events = this.events.clone();
         store_event_revoker(
             fe,
             this.session
-                .PlaybackStateChanged(
-                    Self::on::<MediaPlaybackSession, windows_core::IInspectable>(
-                        this,
-                        |this, _| {
-                            if let Ok(state) = this.session.PlaybackState() {
-                                this.on_session_state(state);
-                            }
-                        },
-                    ),
-                )
+                .PlaybackStateChanged(background_handler::<MediaPlaybackSession, IInspectable>(
+                    move |session, args| {
+                        if args.is_none() {
+                            return;
+                        }
+                        if let Ok(state) = raising_session(session).PlaybackState() {
+                            post(&events, MediaEvent::StateChanged(state));
+                        }
+                    },
+                ))
                 .expect("MediaPlaybackSession::PlaybackStateChanged"),
         );
+        let events = this.events.clone();
         store_event_revoker(
             fe,
             this.session
-                .PositionChanged(
-                    Self::on::<MediaPlaybackSession, windows_core::IInspectable>(
-                        this,
-                        |this, _| {
-                            if let Ok(position) = this.session.Position() {
-                                this.position_seconds.set(timespan_seconds(position));
-                            }
-                        },
-                    ),
-                )
+                .PositionChanged(background_handler::<MediaPlaybackSession, IInspectable>(
+                    move |session, args| {
+                        if args.is_none() {
+                            return;
+                        }
+                        if let Ok(position) = raising_session(session).Position() {
+                            post(
+                                &events,
+                                MediaEvent::PositionChanged(timespan_seconds(position)),
+                            );
+                        }
+                    },
+                ))
                 .expect("MediaPlaybackSession::PositionChanged"),
         );
+        let events = this.events.clone();
         store_event_revoker(
             fe,
             this.session
-                .NaturalDurationChanged(
-                    Self::on::<MediaPlaybackSession, windows_core::IInspectable>(
-                        this,
-                        |this, _| {
-                            if let Ok(duration) = this.session.NaturalDuration() {
-                                this.duration_seconds.set(timespan_seconds(duration));
-                            }
-                        },
-                    ),
-                )
+                .NaturalDurationChanged(background_handler::<MediaPlaybackSession, IInspectable>(
+                    move |session, args| {
+                        if args.is_none() {
+                            return;
+                        }
+                        if let Ok(duration) = raising_session(session).NaturalDuration() {
+                            post(
+                                &events,
+                                MediaEvent::DurationChanged(timespan_seconds(duration)),
+                            );
+                        }
+                    },
+                ))
                 .expect("MediaPlaybackSession::NaturalDurationChanged"),
         );
+        let events = this.events.clone();
         store_event_revoker(
             fe,
             this.session
-                .BufferingProgressChanged(Self::on::<
-                    MediaPlaybackSession,
-                    windows_core::IInspectable,
-                >(this, |this, _| {
-                    if let (Ok(progress), Ok(duration), Ok(position)) = (
-                        this.session.BufferingProgress(),
-                        this.session.NaturalDuration(),
-                        this.session.Position(),
-                    ) {
-                        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-                        let buffered_ms = ((progress * timespan_seconds(duration)
-                            - timespan_seconds(position))
-                            * 1000.0)
-                            .max(0.0) as u32;
-                        this.emit(Event::BufferLevel { buffered_ms });
-                    }
-                }))
+                .BufferingProgressChanged(background_handler::<MediaPlaybackSession, IInspectable>(
+                    move |session, args| {
+                        if args.is_none() {
+                            return;
+                        }
+                        let session = raising_session(session);
+                        if let (Ok(progress), Ok(duration), Ok(position)) = (
+                            session.BufferingProgress(),
+                            session.NaturalDuration(),
+                            session.Position(),
+                        ) {
+                            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                            let buffered_ms = ((progress * timespan_seconds(duration)
+                                - timespan_seconds(position))
+                                * 1000.0)
+                                .max(0.0) as u32;
+                            post(&events, MediaEvent::BufferLevel { buffered_ms });
+                        }
+                    },
+                ))
                 .expect("MediaPlaybackSession::BufferingProgressChanged"),
         );
         if let Ok(session2) = this.session.cast::<IMediaPlaybackSession2>() {
             store_event_revoker(
                 fe,
                 session2
-                    .SeekableRangesChanged(Self::on::<
-                        MediaPlaybackSession,
-                        windows_core::IInspectable,
-                    >(this, |this, _| {
-                        this.update_live_window();
-                    }))
+                    .SeekableRangesChanged(
+                        this.notify_with_args::<MediaPlaybackSession, IInspectable>(
+                            MediaEvent::SeekableRangesChanged,
+                        ),
+                    )
                     .expect("MediaPlaybackSession::SeekableRangesChanged"),
             );
         }
@@ -1047,32 +1082,123 @@ impl VideoCoordinator {
         let Ok(manager) = this.player3.CommandManager() else {
             return;
         };
+        // `Handled` is marked on the raising thread: the command manager reads
+        // it as soon as the handler returns.
+        let events = this.events.clone();
         store_event_revoker(
             fe,
             manager
-                .NextReceived(Self::on::<
+                .NextReceived(background_handler::<
                     MediaPlaybackCommandManager,
                     MediaPlaybackCommandManagerNextReceivedEventArgs,
-                >(this, |this, args| {
+                >(move |_, args| {
+                    let Some(args) = args else {
+                        return;
+                    };
                     let _ = args.SetHandled(true);
-                    this.emit(Event::NextRequested);
-                    let _ = this.controller.next();
+                    post(&events, MediaEvent::NextReceived);
                 }))
                 .expect("MediaPlaybackCommandManager::NextReceived"),
         );
+        let events = this.events.clone();
         store_event_revoker(
             fe,
             manager
-                .PreviousReceived(Self::on::<
+                .PreviousReceived(background_handler::<
                     MediaPlaybackCommandManager,
                     MediaPlaybackCommandManagerPreviousReceivedEventArgs,
-                >(this, |this, args| {
+                >(move |_, args| {
+                    let Some(args) = args else {
+                        return;
+                    };
                     let _ = args.SetHandled(true);
-                    this.emit(Event::PreviousRequested);
-                    let _ = this.controller.previous();
+                    post(&events, MediaEvent::PreviousReceived);
                 }))
                 .expect("MediaPlaybackCommandManager::PreviousReceived"),
         );
+    }
+
+    /// Applies posted events on the `UI` thread for as long as the
+    /// coordinator lives. The coordinator owns the returned task, so dropping
+    /// it cancels the pump; the receiver is dropped with the task's future on
+    /// a later dispatcher turn. An event handler may itself release the last
+    /// reference to the coordinator (an app that removes the player when the
+    /// video ends), so the pump also ends as soon as the coordinator or every
+    /// sender is gone.
+    fn pump_events(
+        executor: &DispatcherQueueExecutor,
+        coordinator: Weak<Self>,
+        events: Receiver<MediaEvent>,
+    ) -> AsyncTask<()> {
+        executor.spawn_local(async move {
+            while let Ok(event) = events.recv().await {
+                let Some(this) = coordinator.upgrade() else {
+                    break;
+                };
+                Self::apply(&this, event);
+            }
+        })
+    }
+
+    /// What each event updates — the same as when the handlers mutated this
+    /// state directly, now on the `UI` thread.
+    fn apply(this: &Rc<Self>, event: MediaEvent) {
+        match event {
+            MediaEvent::Opened => {
+                this.populate_track_catalog();
+                this.apply_track_selections();
+                if let Ok(duration) = this.session.NaturalDuration() {
+                    this.duration_seconds.set(timespan_seconds(duration));
+                }
+                this.update_live_window();
+                this.phase.set(PlaybackPhase::Ready);
+                this.emit(Event::PlaybackOutputPathChanged {
+                    path: PlaybackOutputPath::PlatformManaged,
+                });
+                this.emit(Event::ReadyToPlay);
+            }
+            MediaEvent::Ended => {
+                this.phase.set(PlaybackPhase::Ended);
+                this.emit(Event::Ended);
+                // `One` loops inside the pipeline; `All` advances through
+                // the controller, which wraps at the end.
+                if this.repeat.snapshot() != RepeatMode::One && this.has_next.snapshot() {
+                    let _ = this.controller.next();
+                }
+            }
+            MediaEvent::Failed { message } => {
+                this.phase.set(PlaybackPhase::Failed);
+                this.emit(Event::Error { message });
+            }
+            MediaEvent::BufferingStarted => {
+                this.phase.set(PlaybackPhase::Buffering);
+                this.emit(Event::Buffering);
+            }
+            MediaEvent::BufferingEnded => this.emit(Event::BufferingEnded),
+            MediaEvent::StateChanged(state) => this.on_session_state(state),
+            MediaEvent::PositionChanged(seconds) => this.position_seconds.set(seconds),
+            MediaEvent::DurationChanged(seconds) => this.duration_seconds.set(seconds),
+            MediaEvent::BufferLevel { buffered_ms } => {
+                this.emit(Event::BufferLevel { buffered_ms });
+            }
+            MediaEvent::SeekableRangesChanged => this.update_live_window(),
+            MediaEvent::NextReceived => {
+                this.emit(Event::NextRequested);
+                let _ = this.controller.next();
+            }
+            MediaEvent::PreviousReceived => {
+                this.emit(Event::PreviousRequested);
+                let _ = this.controller.previous();
+            }
+            MediaEvent::TracksChanged => this.on_tracks_changed(),
+            MediaEvent::TimedMetadataTracksChanged => {
+                this.on_tracks_changed();
+                if let Some(item) = this.item.borrow().clone() {
+                    Self::subscribe_timed_cues(this, &item);
+                }
+            }
+            MediaEvent::CueEntered(metadata) => this.emit(Event::TimedMetadata { metadata }),
+        }
     }
 
     /// Watches every command binding; returned guards are stored on the
