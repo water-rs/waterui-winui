@@ -169,6 +169,7 @@ Windows::Win32::QS_ALLINPUT
 Windows::Win32::MWMO_INPUTAVAILABLE
 Windows::Win32::INFINITE
 Windows::Win32::WAIT_FAILED
+Windows::Win32::VkKeyScanW
 Windows::Win32::WMSZ_LEFT
 Windows::Win32::WMSZ_TOP
 Windows::Win32::WMSZ_RIGHT
