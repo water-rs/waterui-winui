@@ -15,6 +15,7 @@ use windows_core::Interface;
 use crate::bindings::*;
 use crate::executor::{UiThread, enqueue_on_ui_thread};
 use crate::renderer::WinUiRenderer;
+use crate::session_end::SessionEnd;
 use crate::util::{
     framework, solid_brush, store_event_revoker, store_watcher_guards, subscribe_then_get,
 };
@@ -28,6 +29,7 @@ pub fn open_window(
     desc: WaterUiWindow,
     env: &Environment,
     renderer: &mut WinUiRenderer,
+    session_end: &SessionEnd,
 ) -> windows_core::Result<Window> {
     let window = Window::new()?;
     let ui = renderer.ui_thread().clone();
@@ -113,6 +115,14 @@ pub fn open_window(
         ..WindowHwnd::default()
     }));
     install_hwnd_gate(&window, &content, hwnd_state.clone())?;
+
+    // Logoff and shutdown reach every top-level window as
+    // `WM_QUERYENDSESSION`/`WM_ENDSESSION`; the subclass reports them to the
+    // termination machine.
+    let session_end = session_end.clone();
+    hwnd_state
+        .borrow_mut()
+        .when_created(move |hwnd| session_end.install(hwnd));
 
     // Close request (user presses X) must mirror into `state`. Under
     // `LastWindowPolicy::Quit` the tracked count reaching zero files a
