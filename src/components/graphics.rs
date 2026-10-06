@@ -3,7 +3,7 @@
 use waterui_core::{Environment, Native};
 use waterui_graphics::Gradient;
 use waterui_graphics::color::Color;
-use waterui_graphics::draw::{ColorStop, Paint};
+use waterui_graphics::draw::{ColorStop, Extend, Interpolation, Paint, RadialGradient};
 use waterui_icon::SystemIcon;
 use waterui_shape::{PathCommand, ResolvedShape};
 use windows_core::Interface;
@@ -80,10 +80,17 @@ impl WinUiComponent for Native<Gradient> {
                         y: linear.end.y as f32,
                     })
                     .expect("LinearGradientBrush::SetEndPoint");
+                let gradient_brush = brush
+                    .cast::<IGradientBrush>()
+                    .expect("LinearGradientBrush is an IGradientBrush");
+                gradient_brush
+                    .SetColorInterpolationMode(color_interpolation_mode(linear.interpolation))
+                    .expect("IGradientBrush::SetColorInterpolationMode");
+                gradient_brush
+                    .SetSpreadMethod(spread_method(linear.extend))
+                    .expect("IGradientBrush::SetSpreadMethod");
                 append_gradient_stops(
-                    &brush
-                        .cast::<IGradientBrush>()
-                        .expect("LinearGradientBrush is an IGradientBrush")
+                    &gradient_brush
                         .GradientStops()
                         .expect("IGradientBrush::GradientStops"),
                     &linear.stops,
@@ -110,11 +117,14 @@ impl WinUiComponent for Native<Gradient> {
                         y: radial.start_center.y as f32,
                     })
                     .expect("RadialGradientBrush::SetGradientOrigin");
+                brush
+                    .SetInterpolationSpace(interpolation_space(radial.interpolation))
+                    .expect("RadialGradientBrush::SetInterpolationSpace");
+                brush
+                    .SetSpreadMethod(spread_method(radial.extend))
+                    .expect("RadialGradientBrush::SetSpreadMethod");
                 // The brush radius is the outer of the two circles
-                // (`Gradient::radial` allows `start_radius > end_radius`). A
-                // nonzero start radius pushes the colour ramp outward:
-                // radial offset `o` in [r0, r1] becomes brush offset
-                // `(r0 + o * (r1 - r0)) / R`, the identity when r0 = 0.
+                // (`Gradient::radial` allows `start_radius > end_radius`).
                 let radius = radial.start_radius.max(radial.end_radius);
                 brush
                     .SetRadiusX(radius)
@@ -122,23 +132,13 @@ impl WinUiComponent for Native<Gradient> {
                 brush
                     .SetRadiusY(radius)
                     .expect("RadialGradientBrush::SetRadiusY");
-                let span = radial.end_radius - radial.start_radius;
-                let stops: Vec<ColorStop> = radial
-                    .stops
-                    .iter()
-                    .map(|stop| ColorStop {
-                        offset: ((radial.start_radius + f64::from(stop.offset) * span) / radius)
-                            as f32,
-                        ..*stop
-                    })
-                    .collect();
                 append_gradient_stops(
                     &brush
                         .cast::<IRadialGradientBrush>()
                         .expect("RadialGradientBrush is an IRadialGradientBrush")
                         .GradientStops()
                         .expect("IRadialGradientBrush::GradientStops"),
-                    &stops,
+                    &radial_stops(radial),
                 );
                 brush.cast().expect("RadialGradientBrush is a Brush")
             }
@@ -149,6 +149,87 @@ impl WinUiComponent for Native<Gradient> {
         };
         swatch.SetBackground(&brush).expect("Border::SetBackground");
         swatch.cast().expect("Border is a UIElement")
+    }
+}
+
+/// Remaps a radial gradient's stops onto the `RadialGradientBrush` ramp, in
+/// ascending offset order.
+///
+/// The brush ramp runs from the centre (offset 0) to the outer radius `R`
+/// (offset 1), so radial offset `o` in `[r0, r1]` becomes brush offset
+/// `(r0 + o * (r1 - r0)) / R`, the identity when `r0 = 0`.
+///
+/// # Panics
+/// On `Extend::Repeat` or `Extend::Reflect` when the smaller radius is above
+/// 0: the brush repeats its ramp over `[0, R]` from the centre, while the
+/// gradient repeats over `[r0, r1]`, so both the period and the phase would
+/// be wrong. Also when the stops do not ascend by offset, the
+/// `RadialGradient` contract.
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "normalized gradient offsets fit f32"
+)]
+fn radial_stops(radial: &RadialGradient) -> Vec<ColorStop> {
+    let inner = radial.start_radius.min(radial.end_radius);
+    assert!(
+        !(matches!(radial.extend, Extend::Repeat | Extend::Reflect) && inner > 0.0),
+        "radial gradient extend mode `{:?}` with a smaller radius of {inner} has no WinUI realization: WinUI's RadialGradientBrush repeats from the centre, not from the inner circle",
+        radial.extend
+    );
+    assert!(
+        radial.stops.is_sorted_by(|a, b| a.offset <= b.offset),
+        "a radial gradient's stops must ascend by offset"
+    );
+    let radius = radial.start_radius.max(radial.end_radius);
+    let span = radial.end_radius - radial.start_radius;
+    let mut stops: Vec<ColorStop> = radial
+        .stops
+        .iter()
+        .map(|stop| ColorStop {
+            offset: ((radial.start_radius + f64::from(stop.offset) * span) / radius) as f32,
+            ..*stop
+        })
+        .collect();
+    // A shrinking ramp (`r0 > r1`) maps ascending stops to descending
+    // offsets. Reversing rather than sorting keeps coincident (hard) stops
+    // in the order that puts each colour on its own side of the edge.
+    if span < 0.0 {
+        stops.reverse();
+    }
+    stops
+}
+
+/// `LinearGradientBrush` interpolates in gamma-encoded sRGB unless told
+/// otherwise; `ScRgbLinearInterpolation` is the linear working space, exact
+/// only for sRGB-in-gamut stops: `working_color_to_winui` clips wider-gamut
+/// (e.g. Display P3) stops to 8-bit sRGB.
+const fn color_interpolation_mode(interpolation: Interpolation) -> ColorInterpolationMode {
+    match interpolation {
+        Interpolation::Working => ColorInterpolationMode::ScRgbLinearInterpolation,
+        Interpolation::SrgbEncoded => ColorInterpolationMode::SRgbLinearInterpolation,
+    }
+}
+
+/// `RadialGradientBrush` is a composition brush: its interpolation space is a
+/// `CompositionColorSpace`, not the `GradientBrush` `ColorInterpolationMode`.
+const fn interpolation_space(interpolation: Interpolation) -> CompositionColorSpace {
+    match interpolation {
+        Interpolation::Working => CompositionColorSpace::RgbLinear,
+        Interpolation::SrgbEncoded => CompositionColorSpace::Rgb,
+    }
+}
+
+/// # Panics
+/// On [`Extend::None`]: a `WinUI` gradient brush always paints past its
+/// range, so it cannot be transparent there.
+fn spread_method(extend: Extend) -> GradientSpreadMethod {
+    match extend {
+        Extend::Pad => GradientSpreadMethod::Pad,
+        Extend::Repeat => GradientSpreadMethod::Repeat,
+        Extend::Reflect => GradientSpreadMethod::Reflect,
+        Extend::None => panic!(
+            "gradient extend mode `Extend::None` (transparent outside the range) has no WinUI GradientSpreadMethod"
+        ),
     }
 }
 
@@ -475,5 +556,18 @@ impl WinUiComponent for Native<GpuContentView> {
     /// handler creates the panel and starts the render loop.
     fn render(self, env: &Environment, renderer: &mut WinUiRenderer) -> UIElement {
         crate::gpu::render_gpu_content(renderer, self.into_inner(), env)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[should_panic(expected = "WinUI's RadialGradientBrush repeats from the centre")]
+    fn radial_repeat_with_a_nonzero_smaller_radius_panics() {
+        let radial =
+            RadialGradient::two_point((0.5, 0.5), 0.2, (0.5, 0.5), 0.5).extend(Extend::Repeat);
+        radial_stops(&radial);
     }
 }
