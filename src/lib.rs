@@ -26,6 +26,40 @@ pub(crate) mod bindings {
 }
 
 pub(crate) mod app_shim;
+/// Handler constructors for `WinRT` events raised off the `UI` thread.
+///
+/// A handler built by `background_handler` must be `Send + Sync`, so one that
+/// captures `UI`-thread state does not compile:
+///
+/// ```compile_fail,E0277
+/// mod background_events {
+///     include!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/background_events.rs"));
+/// }
+/// use windows_core::IInspectable;
+///
+/// let state = std::rc::Rc::new(std::cell::Cell::new(0_u32));
+/// let _handler = background_events::background_handler::<IInspectable, IInspectable>(
+///     move |_, _| state.set(state.get() + 1),
+/// );
+/// ```
+///
+/// Capturing only a channel sender — how the media coordinator hands event
+/// data to the `UI` thread — does:
+///
+/// ```
+/// mod background_events {
+///     include!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/background_events.rs"));
+/// }
+/// use windows_core::IInspectable;
+///
+/// let (sender, _receiver) = async_channel::unbounded::<u32>();
+/// let _handler = background_events::background_handler::<IInspectable, IInspectable>(
+///     move |_, _| {
+///         let _ = sender.try_send(1);
+///     },
+/// );
+/// ```
+mod background_events;
 pub(crate) mod bootstrap;
 pub(crate) mod component;
 pub(crate) mod components;
