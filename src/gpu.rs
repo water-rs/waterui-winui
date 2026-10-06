@@ -1,64 +1,66 @@
-//! GPU surface hosting: `GpuSurface` renders through wgpu into a
-//! `SwapChainPanel`, and `AppliedFilter` captures the wrapped element with
-//! `RenderTargetBitmap`, runs the filtrate effect on the GPU, and presents the
-//! result into an overlaying `SwapChainPanel`.
+//! GPU content hosting: `GpuContentView` renders through wgpu into a
+//! `SwapChainPanel`, and `FilteredView` captures the wrapped element with
+//! `RenderTargetBitmap`, runs the effect on the GPU, and presents the result
+//! into an overlaying `SwapChainPanel`.
 //!
 //! The capture path reads the filtered subtree back through the compositor
-//! once per frame; the direct `GpuSurface` path presents without a readback.
+//! once per frame; the direct `GpuContentView` path presents without a
+//! readback.
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use executor_core::{LocalExecutor, Task};
-use send_wrapper::SendWrapper;
 use waterui_core::Environment;
-use waterui_core::Metadata;
-use waterui_core::layout::Point;
-use waterui_graphics::gpu_surface::{GestureState, GpuSurface, PointerState};
+use waterui_graphics::draw::kurbo;
+use waterui_graphics::filter_view::ErasedEffect;
+use waterui_graphics::filtrate::{
+    EffectContext, EffectFrameClock, EffectInput, EffectOutput, ShapeTextures,
+};
 use waterui_graphics::{
-    AppliedFilter, EffectContext, EffectFrameClock, EffectInput, EffectOutput, GpuContext,
-    GpuRuntime, wgpu,
+    Context as GpuContext, FilteredView, Frame as GpuFrame, GpuContent, GpuContentView, GpuRuntime,
+    RedrawHandle, SurfaceInputEvent, SurfacePointerButton, wgpu,
 };
 use windows_core::Interface;
 
 #[allow(clippy::wildcard_imports)] // the generated namespace
 use crate::bindings::*;
-use crate::executor::enqueue_on_ui_thread;
 use crate::renderer::WinUiRenderer;
 use crate::util::framework;
 
 /// Shared per-surface state mutated from event handlers and the render pump.
 struct SurfaceState {
-    /// The `WaterUI` view driving this surface.
-    view: RefCell<GpuSurface>,
-    /// Latest pointer/gesture snapshot fed into `GpuFrame`.
-    pointer: Cell<Point>,
-    pointer_hovering: Cell<bool>,
-    gesture: RefCell<GestureState>,
+    /// The view: its per-frame UI hook and input handler live on it while
+    /// its content draws.
+    view: GpuContentView,
+    /// The `GpuContent` the view installed on this surface.
+    content: RefCell<Box<dyn GpuContent>>,
     /// Physical pixel size of the swapchain.
     size: Cell<(u32, u32)>,
-    /// Whether the view finished `GpuView::setup`.
-    ready: Cell<bool>,
+    /// Pixels per logical point, from the last `SizeChanged`.
+    scale: Cell<f32>,
     /// Whether a frame is already queued.
     frame_pending: Cell<bool>,
-    /// Clock feeding `GpuFrame::elapsed`/`delta`.
+    /// Buttons currently held, one bit per `SurfacePointerButton` —
+    /// `PointerCanceled`/`PointerCaptureLost` synthesize releases from it.
+    buttons: Cell<u32>,
+    /// Clock feeding `Frame::elapsed`/`delta`.
     last_frame: Cell<Option<Instant>>,
     start: Instant,
 }
 
-/// Renders a `GpuSurface` view into a `SwapChainPanel`.
+/// Renders a `GpuContentView` into a `SwapChainPanel`.
 #[allow(
     clippy::too_many_lines,
     clippy::cast_possible_truncation,
-    clippy::cast_sign_loss,
-    clippy::await_holding_refcell_ref
+    clippy::cast_sign_loss
 )]
 // Flat wiring; pixel conversions saturate intentionally via `as` after
-// `.max(1.0)`; `view` has exactly one borrower on the UI dispatcher.
-pub(crate) fn render_gpu_surface(
+// `.max(1.0)`.
+pub(crate) fn render_gpu_content(
     renderer: &WinUiRenderer,
-    surface: GpuSurface,
+    mut view: GpuContentView,
     env: &Environment,
 ) -> UIElement {
     let runtime = env
@@ -73,8 +75,7 @@ pub(crate) fn render_gpu_surface(
     let wgpu_surface = Rc::new(
         unsafe {
             runtime
-                .context()
-                .instance
+                .instance()
                 .create_surface_unsafe(wgpu::SurfaceTargetUnsafe::SwapChainPanel(native.as_raw()))
         }
         .expect("wgpu surface creation from SwapChainPanel failed"),
@@ -83,72 +84,58 @@ pub(crate) fn render_gpu_surface(
     let context = runtime.context();
     let format = pick_surface_format(
         &wgpu_surface,
-        &context.adapter,
-        surface.resolved_hdr_preference(),
+        context.adapter(),
+        view.resolved_hdr_preference(),
     );
-    let max_samples = surface.msaa_sample_limit();
-
-    let redraw_handle = waterui_graphics::gpu_surface::RedrawHandle::new();
-    let queue = renderer.executor().queue().clone();
+    let gpu_content = view.take_content();
 
     let state = Rc::new(SurfaceState {
-        view: RefCell::new(surface),
-        pointer: Cell::new(Point::new(0.0, 0.0)),
-        pointer_hovering: Cell::new(false),
-        gesture: RefCell::new(GestureState::new()),
+        view,
+        content: RefCell::new(gpu_content),
         size: Cell::new((0, 0)),
-        ready: Cell::new(false),
+        scale: Cell::new(1.0),
         frame_pending: Cell::new(false),
+        buttons: Cell::new(0),
         last_frame: Cell::new(None),
         start: Instant::now(),
     });
 
-    // Waking a redraw hops back to the UI thread and pumps one frame.
-    // `RedrawWaker` is `Send + Sync` because the view may request a redraw from
-    // any thread; the UI-bound state crosses the hop inside `SendWrapper`s and
-    // is only dereferenced on the dispatcher thread.
+    // `GpuContent::setup` is synchronous and runs on the dispatcher thread.
+    // The `Context::redraw` handle it stashes may fire from any thread — a
+    // decoder, a signal watcher — so it captures only the channel `Sender`:
+    // a `try_send` on the `bounded(1)` channel coalesces repeated requests
+    // into one queued pump. A spawned task on the dispatcher owns a `Weak`
+    // back into the state — when the view drops, its content drops the
+    // `Sender`, `recv` ends the loop, and nothing upgrades: a handle
+    // outliving its view redraws nothing, with no reference cycle.
     {
-        let queue = queue.clone();
-        let state = std::sync::Arc::new(SendWrapper::new(Rc::downgrade(&state)));
-        let wgpu_surface = std::sync::Arc::new(SendWrapper::new(wgpu_surface.clone()));
-        let runtime = SendWrapper::new(runtime.clone());
-        redraw_handle.set_waker(Some(std::sync::Arc::new(move || {
-            let queue = queue.clone();
-            let state = state.clone();
-            let wgpu_surface = wgpu_surface.clone();
-            let runtime = runtime.clone();
-            enqueue_on_ui_thread(&queue, move || {
-                if let Some(state) = state.upgrade() {
-                    pump_frame(&wgpu_surface, &runtime, &state, format);
-                }
-            });
-        })));
-    }
-
-    // Setup runs on the dispatcher: `GpuView::setup` is a main-thread future.
-    {
-        let state = state.clone();
+        let (sender, receiver) = async_channel::bounded::<()>(1);
+        let redraw = RedrawHandle::new(move || {
+            let _ = sender.try_send(());
+        });
+        let weak = Rc::downgrade(&state);
+        let surface = wgpu_surface.clone();
         let runtime = runtime.clone();
-        let mut env = env.clone();
-        renderer.executor().spawn_local(async move {
-            // `context()` returns an owned `Arc`: the runtime may swap in a
-            // rebuilt context after device loss, so each frame of work pins
-            // one generation by holding it in a local.
-            let context = runtime.context();
-            let ctx = GpuContext::new(
-                &context.adapter,
-                &context.device,
-                &context.queue,
-                format,
-                &context.shader_cache,
-                context.scene_renderer(),
-                max_samples,
-                redraw_handle,
-                context.device_loss(),
-            );
-            // `view` has exactly one borrower on the single-threaded UI dispatcher.
-            state.view.borrow_mut().setup(&ctx, &mut env).await;
-            state.ready.set(true);
+        renderer
+            .executor()
+            .spawn_local(async move {
+                while receiver.recv().await.is_ok() {
+                    let Some(state) = weak.upgrade() else {
+                        break;
+                    };
+                    pump_frame(&surface, &runtime, &state, format);
+                }
+            })
+            .detach();
+        // `context()` returns an owned `Arc`: the runtime may swap in a
+        // rebuilt context after device loss, so each frame of work pins
+        // one generation by holding it in a local.
+        state.content.borrow_mut().setup(&GpuContext {
+            adapter: context.adapter(),
+            device: context.device(),
+            queue: context.queue(),
+            format,
+            redraw,
         });
     }
 
@@ -172,6 +159,7 @@ pub(crate) fn render_gpu_surface(
                 let scale = rasterization_scale(&element);
                 let w = (f64::from(new_size.width) * scale).max(1.0) as u32;
                 let h = (f64::from(new_size.height) * scale).max(1.0) as u32;
+                state.scale.set(scale as f32);
                 if state.size.get() != (w, h) {
                     state.size.set((w, h));
                     configure(&wgpu_surface, &runtime, format, w, h);
@@ -182,28 +170,18 @@ pub(crate) fn render_gpu_surface(
         crate::util::store_event_revoker(&fe, revoker);
     }
 
-    // Pointer tracking feeds `GpuFrame::pointer`.
+    // Pointer events route to the view's input handler, if the content
+    // declared one. Positions are logical, surface-local points. XAML
+    // reports extra presses and releases while a pointer is held as
+    // `PointerMoved` with a `PointerUpdateKind`, so all three events share
+    // `pointer_input`; `PointerCanceled`/`PointerCaptureLost` end a held
+    // sequence without transitions, so they synthesize the missing
+    // releases from the tracked buttons.
     {
         let state = state.clone();
         let revoker = element
             .PointerMoved(move |sender, args| {
-                let Ok(sender) = sender.ok() else {
-                    return;
-                };
-                let Ok(args) = args.ok() else {
-                    return;
-                };
-                let element: UIElement = sender.cast().expect("UIElement");
-                let point = args
-                    .GetCurrentPoint(&element)
-                    .expect("GetCurrentPoint")
-                    .Position()
-                    .expect("PointerPoint::Position");
-                let scale = rasterization_scale(&element);
-                state
-                    .pointer
-                    .set(Point::new(point.x * scale as f32, point.y * scale as f32));
-                state.pointer_hovering.set(true);
+                pointer_input(&state, sender, args);
             })
             .expect("UIElement::PointerMoved");
         crate::util::store_event_revoker(&fe, revoker);
@@ -211,14 +189,165 @@ pub(crate) fn render_gpu_surface(
     {
         let state = state.clone();
         let revoker = element
-            .PointerExited(move |_sender, _args| {
-                state.pointer_hovering.set(false);
+            .PointerPressed(move |sender, args| {
+                pointer_input(&state, sender, args);
             })
-            .expect("UIElement::PointerExited");
+            .expect("UIElement::PointerPressed");
+        crate::util::store_event_revoker(&fe, revoker);
+    }
+    {
+        let state = state.clone();
+        let revoker = element
+            .PointerReleased(move |sender, args| {
+                pointer_input(&state, sender, args);
+            })
+            .expect("UIElement::PointerReleased");
+        crate::util::store_event_revoker(&fe, revoker);
+    }
+    {
+        let state = state.clone();
+        let revoker = element
+            .PointerCanceled(move |sender, args| {
+                release_held_buttons(&state, sender, args);
+            })
+            .expect("UIElement::PointerCanceled");
+        crate::util::store_event_revoker(&fe, revoker);
+    }
+    {
+        let state = state.clone();
+        let revoker = element
+            .PointerCaptureLost(move |sender, args| {
+                release_held_buttons(&state, sender, args);
+            })
+            .expect("UIElement::PointerCaptureLost");
         crate::util::store_event_revoker(&fe, revoker);
     }
 
     element
+}
+
+/// One bit per `SurfacePointerButton`, in declaration order — the tracked
+/// set of buttons currently held on a surface.
+const BUTTONS: [SurfacePointerButton; 5] = [
+    SurfacePointerButton::Primary,
+    SurfacePointerButton::Secondary,
+    SurfacePointerButton::Middle,
+    SurfacePointerButton::Back,
+    SurfacePointerButton::Forward,
+];
+
+/// The bit `button` occupies in `SurfaceState::buttons`.
+fn button_bit(button: SurfacePointerButton) -> u32 {
+    BUTTONS
+        .iter()
+        .position(|held| *held == button)
+        .map(|index| 1_u32 << index)
+        .expect("every SurfacePointerButton has a bit")
+}
+
+/// Emits a release for every button still held: `PointerCanceled` and
+/// `PointerCaptureLost` arrive in place of the releases, and the view must
+/// see each held button go up exactly once.
+fn release_held_buttons(
+    state: &Rc<SurfaceState>,
+    sender: windows_core::Ref<windows_core::IInspectable>,
+    args: windows_core::Ref<PointerRoutedEventArgs>,
+) {
+    let held = state.buttons.replace(0);
+    if held == 0 || !state.view.wants_input_events() {
+        return;
+    }
+    let element: UIElement = sender
+        .ok()
+        .expect("pointer event sender")
+        .cast()
+        .expect("UIElement");
+    let args = args.ok().expect("pointer event args");
+    let position = args
+        .GetCurrentPoint(&element)
+        .expect("PointerRoutedEventArgs::GetCurrentPoint")
+        .Position()
+        .expect("PointerPoint::Position");
+    let position = kurbo::Point::new(f64::from(position.x), f64::from(position.y));
+    for button in BUTTONS {
+        if held & button_bit(button) != 0 {
+            state.view.input(&SurfaceInputEvent::PointerButton {
+                pressed: false,
+                button,
+                position,
+            });
+        }
+    }
+}
+
+/// Routes a `PointerMoved`/`PointerPressed`/`PointerReleased` event into the
+/// view's input handler when the content declared one.
+///
+/// The `PointerUpdateKind` decides: a transition in the W3C button set
+/// becomes `PointerButton` — a press captures the pointer so moves keep
+/// arriving while it is held, and is marked `Handled` — and anything else
+/// (including `Other`) is a plain `PointerMove`. Every event funnels here,
+/// including the `PointerMoved`s XAML emits for extra buttons during a held
+/// press.
+fn pointer_input(
+    state: &Rc<SurfaceState>,
+    sender: windows_core::Ref<windows_core::IInspectable>,
+    args: windows_core::Ref<PointerRoutedEventArgs>,
+) {
+    let element: UIElement = sender
+        .ok()
+        .expect("pointer event sender")
+        .cast()
+        .expect("UIElement");
+    let args = args.ok().expect("pointer event args");
+    let point = args
+        .GetCurrentPoint(&element)
+        .expect("PointerRoutedEventArgs::GetCurrentPoint");
+    if !state.view.wants_input_events() {
+        return;
+    }
+    let position = point.Position().expect("PointerPoint::Position");
+    let position = kurbo::Point::new(f64::from(position.x), f64::from(position.y));
+    let kind = point
+        .Properties()
+        .expect("PointerPoint::Properties")
+        .PointerUpdateKind()
+        .expect("PointerPointProperties::PointerUpdateKind");
+    let transition = match kind {
+        PointerUpdateKind::LeftButtonPressed => Some((SurfacePointerButton::Primary, true)),
+        PointerUpdateKind::LeftButtonReleased => Some((SurfacePointerButton::Primary, false)),
+        PointerUpdateKind::RightButtonPressed => Some((SurfacePointerButton::Secondary, true)),
+        PointerUpdateKind::RightButtonReleased => Some((SurfacePointerButton::Secondary, false)),
+        PointerUpdateKind::MiddleButtonPressed => Some((SurfacePointerButton::Middle, true)),
+        PointerUpdateKind::MiddleButtonReleased => Some((SurfacePointerButton::Middle, false)),
+        PointerUpdateKind::XButton1Pressed => Some((SurfacePointerButton::Back, true)),
+        PointerUpdateKind::XButton1Released => Some((SurfacePointerButton::Back, false)),
+        PointerUpdateKind::XButton2Pressed => Some((SurfacePointerButton::Forward, true)),
+        PointerUpdateKind::XButton2Released => Some((SurfacePointerButton::Forward, false)),
+        _ => None,
+    };
+    match transition {
+        Some((button, pressed)) => {
+            if pressed {
+                element
+                    .CapturePointer(&args.Pointer().expect("PointerRoutedEventArgs::Pointer"))
+                    .expect("UIElement::CapturePointer");
+                args.SetHandled(true)
+                    .expect("PointerRoutedEventArgs::SetHandled");
+                state.buttons.set(state.buttons.get() | button_bit(button));
+            } else {
+                state.buttons.set(state.buttons.get() & !button_bit(button));
+            }
+            state.view.input(&SurfaceInputEvent::PointerButton {
+                pressed,
+                button,
+                position,
+            });
+        }
+        None => state
+            .view
+            .input(&SurfaceInputEvent::PointerMove { position }),
+    }
 }
 
 fn rasterization_scale(element: &UIElement) -> f64 {
@@ -250,7 +379,7 @@ fn pick_surface_format(
 }
 
 fn configure(
-    surface: &wgpu::Surface<'static>,
+    surface: &Rc<wgpu::Surface<'static>>,
     runtime: &GpuRuntime,
     format: wgpu::TextureFormat,
     width: u32,
@@ -259,6 +388,7 @@ fn configure(
     let config = wgpu::SurfaceConfiguration {
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
         format,
+        color_space: wgpu::SurfaceColorSpace::Auto,
         width,
         height,
         present_mode: wgpu::PresentMode::Fifo,
@@ -266,18 +396,18 @@ fn configure(
         alpha_mode: wgpu::CompositeAlphaMode::Auto,
         view_formats: vec![],
     };
-    surface.configure(&runtime.context().device, &config);
+    surface.configure(runtime.context().device(), &config);
 }
 
-/// Renders one frame when the surface is configured, the view is ready, and no
-/// frame is already pending.
+/// Renders one frame when the surface is configured and no frame is
+/// already pending.
 fn pump_frame(
     surface: &Rc<wgpu::Surface<'static>>,
     runtime: &GpuRuntime,
     state: &Rc<SurfaceState>,
     format: wgpu::TextureFormat,
 ) {
-    if !state.ready.get() || state.frame_pending.get() {
+    if state.frame_pending.get() {
         return;
     }
     let (width, height) = state.size.get();
@@ -302,7 +432,7 @@ fn pump_frame(
             panic!("SwapChainPanel frame acquisition raised a validation error")
         }
     };
-    let view = texture
+    let target = texture
         .texture
         .create_view(&wgpu::TextureViewDescriptor::default());
 
@@ -313,36 +443,23 @@ fn pump_frame(
         .map_or(Duration::ZERO, |last| now - last);
     let elapsed = now - state.start;
 
-    let pointer = PointerState {
-        position: state.pointer_hovering.get().then(|| state.pointer.get()),
-        hit: None,
-    };
-    let gesture = GestureState {
-        pinch_scale: state.gesture.borrow().pinch_scale,
-        pinch_center: state.gesture.borrow().pinch_center,
-        pan_offset: state.gesture.borrow().pan_offset,
-        double_tap: state.gesture.borrow().double_tap,
-        active: state.gesture.borrow().active,
-    };
+    // The UI-side frame hook runs on this thread before the content draws.
+    state.view.frame();
 
     let context = runtime.context();
-    let mut frame = waterui_graphics::gpu_surface::GpuFrame::new(
-        &context.device,
-        &context.queue,
+    let mut frame = GpuFrame::new(
+        context.device(),
+        context.queue(),
         &texture.texture,
-        view,
+        &target,
         format,
-        width,
-        height,
-        1.0,
-        pointer,
-        gesture,
-        elapsed,
-        delta,
+        (width, height),
+        state.scale.get(),
+        (elapsed, delta),
     );
-    state.view.borrow_mut().render(&mut frame);
-    let redraw = frame.was_redraw_requested();
-    texture.present();
+    state.content.borrow_mut().render(&mut frame);
+    let redraw = frame.redraw_requested();
+    context.queue().present(texture);
     state.frame_pending.set(false);
 
     if redraw {
@@ -365,27 +482,38 @@ fn pump_frame(
     }
 }
 
-/// Shared state for the `AppliedFilter` capture/present pump.
+/// Shared state for the `FilteredView` capture/present pump.
 struct FilterState {
-    filter: RefCell<AppliedFilter>,
+    effect: RefCell<Box<dyn ErasedEffect>>,
     clock: RefCell<EffectFrameClock>,
     busy: Cell<bool>,
-    configured: Cell<bool>,
-    /// Whether `AppliedFilter::setup` compiled the pass graph.
+    /// Whether `Effect::setup` compiled the pass graph.
     setup_done: Cell<bool>,
     /// Last physical size the output swapchain was configured with.
     size: Cell<(u32, u32)>,
 }
 
-/// `Metadata<AppliedFilter>`: capture the subtree each frame, run the filter,
+/// `Native<FilteredView>`: capture the subtree each frame, run the effect,
 /// and present into an overlaying `SwapChainPanel`.
-pub(crate) fn render_applied_filter(
+///
+/// A filtered subtree that is itself a `FilteredView` renders into its own
+/// overlay first — the outer capture then reads the already-filtered pixels,
+/// so effect chains need no special handling.
+// Flat capture/present wiring.
+pub(crate) fn render_filtered_view(
     renderer: &mut WinUiRenderer,
-    metadata: Metadata<AppliedFilter>,
+    filtered: FilteredView,
     env: &Environment,
 ) -> UIElement {
-    let content = renderer.render_any(metadata.content, env);
-    let filter = metadata.value;
+    let FilteredView {
+        content,
+        effect,
+        guards,
+    } = filtered;
+    let content = renderer.render_any(content, env);
+    // The subscriptions feeding the effect's reactive parameters live as
+    // long as the realized element.
+    crate::util::store_retained(&framework(&content), Box::new(guards));
 
     let runtime = env
         .get::<GpuRuntime>()
@@ -411,31 +539,31 @@ pub(crate) fn render_applied_filter(
     let wgpu_surface = Rc::new(
         unsafe {
             runtime
-                .context()
-                .instance
+                .instance()
                 .create_surface_unsafe(wgpu::SurfaceTargetUnsafe::SwapChainPanel(native.as_raw()))
         }
         .expect("wgpu surface creation from SwapChainPanel failed"),
     );
 
     let state = Rc::new(FilterState {
-        filter: RefCell::new(filter),
+        effect: RefCell::new(effect.build()),
         clock: RefCell::new(EffectFrameClock::new()),
         busy: Cell::new(false),
         setup_done: Cell::new(false),
         size: Cell::new((0, 0)),
-        configured: Cell::new(false),
     });
 
     let executor = renderer.executor().clone();
+
     {
         let state = state.clone();
         let runtime = runtime.clone();
         let wgpu_surface = wgpu_surface.clone();
         let content = content.clone();
-        let grid = grid.clone();
+        let panel = panel_element.clone();
         // `CompositionTarget::Rendering` already fires on the UI thread once
-        // per compositor frame.
+        // per compositor frame, so no effect-side redraw callback is needed:
+        // a dirty parameter simply renders on the next tick.
         let grid_for_revoker = grid.clone();
         let revoker = CompositionTarget::Rendering(move |_sender, _args| {
             if state.busy.replace(true) {
@@ -444,7 +572,7 @@ pub(crate) fn render_applied_filter(
             executor
                 .spawn_local(filter_frame(
                     content.clone(),
-                    grid.clone(),
+                    panel.clone(),
                     state.clone(),
                     runtime.clone(),
                     wgpu_surface.clone(),
@@ -469,13 +597,13 @@ pub(crate) fn render_applied_filter(
 )]
 #[expect(
     clippy::await_holding_refcell_ref,
-    reason = "`Effect::setup` takes `&mut self`, so the borrow must live across the await; \
-              `busy` admits one frame at a time and this fn is the only borrower of `filter`"
+    reason = "`ErasedEffect::setup` takes `&mut self`, so the borrow must live across the await; \
+              `busy` admits one frame at a time and this fn is the only borrower of `effect`"
 )]
 // Flat capture/present pump; pixel conversions saturate intentionally.
 async fn filter_frame(
     content: UIElement,
-    grid: Grid,
+    panel: UIElement,
     state: Rc<FilterState>,
     runtime: GpuRuntime,
     wgpu_surface: Rc<wgpu::Surface<'static>>,
@@ -491,37 +619,18 @@ async fn filter_frame(
         return;
     }
 
-    // Size from the grid in physical pixels.
-    let grid_element: UIElement = grid.cast().expect("Grid is a UIElement");
-    let fe = framework(&grid_element);
-    let scale = rasterization_scale(&grid_element);
-    let w = (fe.ActualWidth().expect("ActualWidth") * scale).max(1.0) as u32;
-    let h = (fe.ActualHeight().expect("ActualHeight") * scale).max(1.0) as u32;
-    if state.size.get() != (w, h) {
-        state.size.set((w, h));
-        configure(
-            &wgpu_surface,
-            &runtime,
-            wgpu::TextureFormat::Bgra8Unorm,
-            w,
-            h,
-        );
-        state.configured.set(true);
-    }
-
     // `encode_render` requires a compiled pass graph; `Effect::setup` builds
     // it asynchronously, so the first frame compiles before any capture work.
     if !state.setup_done.get() {
         let shared = runtime.context();
         let ctx = EffectContext {
-            device: &shared.device,
-            queue: &shared.queue,
-            shader_cache: shared.shader_cache.as_ref(),
+            device: shared.device(),
+            queue: shared.queue(),
             input_format: wgpu::TextureFormat::Bgra8Unorm,
             output_format: wgpu::TextureFormat::Bgra8Unorm,
         };
-        let setup_result = state.filter.borrow_mut().setup(&ctx).await;
-        setup_result.expect("AppliedFilter setup failed");
+        let setup_result = state.effect.borrow_mut().setup(&ctx).await;
+        setup_result.expect("FilteredView effect setup failed");
         state.setup_done.set(true);
     }
 
@@ -540,6 +649,39 @@ async fn filter_frame(
         return;
     }
 
+    // The effect declares the output size for the captured input — never the
+    // grid: a mismatched swapchain makes `encode_render` fail `SizeMismatch`.
+    let (ow, oh) = state.effect.borrow().output_size(pw, ph);
+    if state.size.get() != (ow, oh) {
+        state.size.set((ow, oh));
+        configure(
+            &wgpu_surface,
+            &runtime,
+            wgpu::TextureFormat::Bgra8Unorm,
+            ow,
+            oh,
+        );
+    }
+    // A `SwapChainPanel` shows swapchain pixels 1:1 per DIP and this pin's
+    // wgpu-hal sets no matrix transform, so an `OutputSize::Scale`/`Fixed`
+    // effect would draw at the wrong size — the transform scales the output
+    // back over the panel's layout bounds.
+    let panel_fe = framework(&panel);
+    let scale = ScaleTransform::new().expect("ScaleTransform::new");
+    scale
+        .SetScaleX(panel_fe.ActualWidth().expect("ActualWidth") / f64::from(ow))
+        .expect("ScaleTransform::SetScaleX");
+    scale
+        .SetScaleY(panel_fe.ActualHeight().expect("ActualHeight") / f64::from(oh))
+        .expect("ScaleTransform::SetScaleY");
+    panel
+        .SetRenderTransform(
+            &scale
+                .cast::<Transform>()
+                .expect("ScaleTransform is a Transform"),
+        )
+        .expect("UIElement::SetRenderTransform");
+
     let buffer = bitmap
         .GetPixelsAsync()
         .expect("GetPixelsAsync")
@@ -552,8 +694,9 @@ async fn filter_frame(
         .ReadBytes(&mut pixels)
         .expect("DataReader::ReadBytes");
 
-    let device = &runtime.context().device;
-    let queue_wgpu = &runtime.context().queue;
+    let shared = runtime.context();
+    let device = shared.device();
+    let queue_wgpu = shared.queue();
 
     let input = device.create_texture(&wgpu::TextureDescriptor {
         label: Some("waterui-winui filter input"),
@@ -597,8 +740,8 @@ async fn filter_frame(
                 &wgpu_surface,
                 &runtime,
                 wgpu::TextureFormat::Bgra8Unorm,
-                w,
-                h,
+                ow,
+                oh,
             );
             state.busy.set(false);
             return;
@@ -616,7 +759,6 @@ async fn filter_frame(
         .create_view(&wgpu::TextureViewDescriptor::default());
     let input_view = input.create_view(&wgpu::TextureViewDescriptor::default());
 
-    let timing = state.clock.borrow_mut().tick();
     let input_ref = EffectInput {
         device,
         queue: queue_wgpu,
@@ -625,7 +767,8 @@ async fn filter_frame(
         format: wgpu::TextureFormat::Bgra8Unorm,
         width: pw,
         height: ph,
-        timing,
+        timing: state.clock.borrow_mut().tick(),
+        shape: ShapeTextures::default(),
     };
     let output = EffectOutput {
         device,
@@ -633,20 +776,20 @@ async fn filter_frame(
         texture: &frame.texture,
         view: output_view,
         format: wgpu::TextureFormat::Bgra8Unorm,
-        width: w,
-        height: h,
+        width: ow,
+        height: oh,
     };
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
         label: Some("waterui-winui filter encoder"),
     });
     let result = state
-        .filter
+        .effect
         .borrow_mut()
         .encode_render(&input_ref, &output, &mut encoder);
     queue_wgpu.submit([encoder.finish()]);
-    frame.present();
+    queue_wgpu.present(frame);
     if let Err(error) = result {
-        panic!("AppliedFilter render failed: {error}");
+        panic!("FilteredView effect render failed: {error}");
     }
     state.busy.set(false);
 }

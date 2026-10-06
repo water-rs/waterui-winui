@@ -19,10 +19,11 @@ use waterui_form::picker::date::DatePickerConfig;
 use waterui_form::picker::multi_date::MultiDatePickerConfig;
 use waterui_form::secure::SecureFieldConfig;
 #[cfg(feature = "gpu")]
-use waterui_graphics::ResolvedGradient;
-use waterui_graphics::color::{Color, ResolvedColor};
+use waterui_graphics::FilteredView;
 #[cfg(feature = "gpu")]
-use waterui_graphics::gpu_surface::GpuSurface;
+use waterui_graphics::GpuContentView;
+use waterui_graphics::Gradient;
+use waterui_graphics::color::Color;
 use waterui_icon::SystemIcon;
 use waterui_layout::container::{FixedContainer, LazyContainer};
 use waterui_layout::scroll::ScrollView;
@@ -141,12 +142,14 @@ impl WinUiRenderer {
         Self::register_native::<ResolvedMenu>(dispatcher);
         Self::register_native::<SystemIcon>(dispatcher);
         Self::register_native::<Color>(dispatcher);
-        Self::register_native::<ResolvedColor>(dispatcher);
-        #[cfg(feature = "gpu")]
-        Self::register_native::<ResolvedGradient>(dispatcher);
+        Self::register_native::<Gradient>(dispatcher);
         Self::register_native::<ResolvedShape>(dispatcher);
         #[cfg(feature = "gpu")]
-        Self::register_native::<GpuSurface>(dispatcher);
+        Self::register_native::<GpuContentView>(dispatcher);
+        #[cfg(feature = "gpu")]
+        Self::register_with_renderer::<Native<FilteredView>>(dispatcher, |renderer, view, env| {
+            crate::gpu::render_filtered_view(renderer, view.into_inner(), env)
+        });
         Self::register_native::<NativeVideoConfig>(dispatcher);
         Self::register_native::<NativeVideoPlayerConfig>(dispatcher);
 

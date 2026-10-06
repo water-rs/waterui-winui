@@ -1,7 +1,8 @@
 //! Menu realization: `ResolvedMenu` as a `DropDownButton` + `MenuFlyout`.
 
 use nami::Signal;
-use waterui_controls::menu::{ResolvedMenu, ResolvedMenuItem};
+use waterui::app::Quit;
+use waterui_controls::menu::{CommandExt, ResolvedMenu, ResolvedMenuItem, Shortcut};
 use waterui_core::{Environment, Native};
 use windows_core::Interface;
 
@@ -72,9 +73,9 @@ pub(crate) fn rebuild_flyout(
         crate::util::vector::<_, MenuFlyoutItemBase>(&flyout.Items().expect("MenuFlyout::Items"));
     collection.Clear().expect("IVector::Clear");
     for item in items {
-        collection
-            .Append(&build_menu_item(item, env, queue))
-            .expect("IVector::Append");
+        if let Some(entry) = build_menu_item(item, env, queue) {
+            collection.Append(&entry).expect("IVector::Append");
+        }
     }
 }
 
@@ -83,7 +84,7 @@ fn build_menu_item(
     item: &ResolvedMenuItem,
     env: &Environment,
     queue: &DispatcherQueue,
-) -> MenuFlyoutItemBase {
+) -> Option<MenuFlyoutItemBase> {
     match item {
         ResolvedMenuItem::Command(command) => {
             let entry = MenuFlyoutItem::new().expect("MenuFlyoutItem::new");
@@ -137,14 +138,18 @@ fn build_menu_item(
                 disabled_guard,
             );
 
-            entry
-                .cast()
-                .expect("MenuFlyoutItem is a MenuFlyoutItemBase")
+            Some(
+                entry
+                    .cast()
+                    .expect("MenuFlyoutItem is a MenuFlyoutItemBase"),
+            )
         }
-        ResolvedMenuItem::Divider => MenuFlyoutSeparator::new()
-            .expect("MenuFlyoutSeparator::new")
-            .cast()
-            .expect("MenuFlyoutSeparator is a MenuFlyoutItemBase"),
+        ResolvedMenuItem::Divider => Some(
+            MenuFlyoutSeparator::new()
+                .expect("MenuFlyoutSeparator::new")
+                .cast()
+                .expect("MenuFlyoutSeparator is a MenuFlyoutItemBase"),
+        ),
         ResolvedMenuItem::Menu(nested) => {
             let entry = MenuFlyoutSubItem::new().expect("MenuFlyoutSubItem::new");
             let text = nested.label.content.snapshot().to_plain().to_string();
@@ -155,13 +160,26 @@ fn build_menu_item(
                 &entry.Items().expect("MenuFlyoutSubItem::Items"),
             );
             for child in nested.items.snapshot() {
-                items
-                    .Append(&build_menu_item(&child, env, queue))
-                    .expect("IVector::Append");
+                if let Some(child_item) = build_menu_item(&child, env, queue) {
+                    items.Append(&child_item).expect("IVector::Append");
+                }
             }
-            entry
-                .cast()
-                .expect("MenuFlyoutSubItem is a MenuFlyoutItemBase")
+            Some(
+                entry
+                    .cast()
+                    .expect("MenuFlyoutSubItem is a MenuFlyoutItemBase"),
+            )
         }
+        ResolvedMenuItem::Quit => env.get::<Quit>().map(|quit| {
+            // The platform quit command — hydrolysis's `quit_command`
+            // spells it the same way for Windows.
+            let quit = quit.clone();
+            let command = "Exit"
+                .action(move || quit.request())
+                .shortcut(Shortcut::new("q").command())
+                .resolve(env);
+            build_menu_item(&ResolvedMenuItem::Command(command), env, queue)
+                .expect("a resolved command always builds")
+        }),
     }
 }

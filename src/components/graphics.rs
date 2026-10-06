@@ -1,15 +1,15 @@
 //! Graphics views: colors, gradients, shapes, icons, GPU surfaces.
 
 use waterui_core::{Environment, Native};
-use waterui_graphics::color::{Color, ResolvedColor};
+use waterui_graphics::Gradient;
+use waterui_graphics::color::Color;
+use waterui_graphics::draw::{ColorStop, Paint};
 use waterui_icon::SystemIcon;
 use waterui_shape::{PathCommand, ResolvedShape};
 use windows_core::Interface;
 
 #[cfg(feature = "gpu")]
-use waterui_graphics::ResolvedGradient;
-#[cfg(feature = "gpu")]
-use waterui_graphics::gpu_surface::GpuSurface;
+use waterui_graphics::GpuContentView;
 
 #[allow(clippy::wildcard_imports)] // the generated namespace
 use crate::bindings::*;
@@ -52,42 +52,32 @@ impl WinUiComponent for Native<Color> {
     }
 }
 
-impl WinUiComponent for Native<ResolvedColor> {
-    /// Fills a `Border` with the resolved color.
-    fn render(self, _env: &Environment, _renderer: &mut WinUiRenderer) -> UIElement {
-        let swatch = color_swatch();
-        swatch
-            .SetBackground(&solid_brush(&self.into_inner()).expect("SolidColorBrush"))
-            .expect("Border::SetBackground");
-        swatch.cast().expect("Border is a UIElement")
-    }
-}
-
-#[cfg(feature = "gpu")]
-impl WinUiComponent for Native<ResolvedGradient> {
+impl WinUiComponent for Native<Gradient> {
     /// Fills a `Border` with a `LinearGradientBrush` or `RadialGradientBrush`.
     ///
-    /// Angular and mesh gradients have no `WinUI` brush equivalent; they require
-    /// the GPU (filtrate) path and panic rather than silently degrading.
+    /// Sweep and mesh gradients have no `WinUI` brush realization; they
+    /// panic rather than silently degrading.
+    #[allow(
+        clippy::cast_possible_truncation,
+        reason = "normalized gradient coordinates fit f32"
+    )]
     fn render(self, _env: &Environment, _renderer: &mut WinUiRenderer) -> UIElement {
-        use waterui_graphics::GradientType;
-
         let gradient = self.into_inner();
         let swatch = color_swatch();
 
-        let brush: Brush = match gradient.gradient_type {
-            GradientType::Linear => {
+        let brush: Brush = match gradient.paint() {
+            Paint::Linear(linear) => {
                 let brush = LinearGradientBrush::new().expect("LinearGradientBrush::new");
                 brush
                     .SetStartPoint(Point {
-                        x: gradient.start_point[0],
-                        y: gradient.start_point[1],
+                        x: linear.start.x as f32,
+                        y: linear.start.y as f32,
                     })
                     .expect("LinearGradientBrush::SetStartPoint");
                 brush
                     .SetEndPoint(Point {
-                        x: gradient.end_point[0],
-                        y: gradient.end_point[1],
+                        x: linear.end.x as f32,
+                        y: linear.end.y as f32,
                     })
                     .expect("LinearGradientBrush::SetEndPoint");
                 append_gradient_stops(
@@ -96,44 +86,66 @@ impl WinUiComponent for Native<ResolvedGradient> {
                         .expect("LinearGradientBrush is an IGradientBrush")
                         .GradientStops()
                         .expect("IGradientBrush::GradientStops"),
-                    &gradient.stops,
+                    &linear.stops,
                 );
                 brush.cast().expect("LinearGradientBrush is a Brush")
             }
-            GradientType::Radial => {
+            Paint::Radial(radial) => {
+                // `Gradient::radial` always produces equal centres; the WinUI
+                // brush has a single centre.
+                assert!(
+                    radial.start_center == radial.end_center,
+                    "a radial gradient's centres must coincide"
+                );
                 let brush = RadialGradientBrush::new().expect("RadialGradientBrush::new");
                 brush
                     .SetCenter(Point {
-                        x: gradient.start_point[0],
-                        y: gradient.start_point[1],
+                        x: radial.start_center.x as f32,
+                        y: radial.start_center.y as f32,
                     })
                     .expect("RadialGradientBrush::SetCenter");
                 brush
                     .SetGradientOrigin(Point {
-                        x: gradient.start_point[0],
-                        y: gradient.start_point[1],
+                        x: radial.start_center.x as f32,
+                        y: radial.start_center.y as f32,
                     })
                     .expect("RadialGradientBrush::SetGradientOrigin");
+                // The brush radius is the outer of the two circles
+                // (`Gradient::radial` allows `start_radius > end_radius`). A
+                // nonzero start radius pushes the colour ramp outward:
+                // radial offset `o` in [r0, r1] becomes brush offset
+                // `(r0 + o * (r1 - r0)) / R`, the identity when r0 = 0.
+                let radius = radial.start_radius.max(radial.end_radius);
                 brush
-                    .SetRadiusX(f64::from(gradient.start_value))
+                    .SetRadiusX(radius)
                     .expect("RadialGradientBrush::SetRadiusX");
                 brush
-                    .SetRadiusY(f64::from(gradient.end_value))
+                    .SetRadiusY(radius)
                     .expect("RadialGradientBrush::SetRadiusY");
+                let span = radial.end_radius - radial.start_radius;
+                let stops: Vec<ColorStop> = radial
+                    .stops
+                    .iter()
+                    .map(|stop| ColorStop {
+                        offset: ((radial.start_radius + f64::from(stop.offset) * span) / radius)
+                            as f32,
+                        ..*stop
+                    })
+                    .collect();
                 append_gradient_stops(
                     &brush
                         .cast::<IRadialGradientBrush>()
                         .expect("RadialGradientBrush is an IRadialGradientBrush")
                         .GradientStops()
                         .expect("IRadialGradientBrush::GradientStops"),
-                    &gradient.stops,
+                    &stops,
                 );
                 brush.cast().expect("RadialGradientBrush is a Brush")
             }
-            GradientType::Angular | GradientType::Mesh => panic!(
-                "angular and mesh gradients have no WinUI brush realization; \
-                 they require the GPU filter path"
-            ),
+            Paint::Sweep(_) | Paint::Mesh(_) => {
+                panic!("sweep and mesh gradients have no WinUI brush realization")
+            }
+            _ => panic!("a native gradient must carry a gradient paint"),
         };
         swatch.SetBackground(&brush).expect("Border::SetBackground");
         swatch.cast().expect("Border is a UIElement")
@@ -143,19 +155,15 @@ impl WinUiComponent for Native<ResolvedGradient> {
 /// `GradientStops` is `GradientStopCollection` on `IGradientBrush` but
 /// `IObservableVector<GradientStop>` on `IRadialGradientBrush`; both are
 /// `IVector<GradientStop>` at the ABI.
-#[cfg(feature = "gpu")]
-fn append_gradient_stops<C: Interface>(
-    stops: &C,
-    gradient_stops: &[waterui_graphics::ResolvedGradientStop],
-) {
+fn append_gradient_stops<C: Interface>(stops: &C, gradient_stops: &[ColorStop]) {
     let vector = crate::util::vector::<_, GradientStop>(stops);
     for stop in gradient_stops {
         let native = GradientStop::new().expect("GradientStop::new");
         native
-            .SetOffset(f64::from(stop.position))
+            .SetOffset(f64::from(stop.offset))
             .expect("GradientStop::SetOffset");
         native
-            .SetColor(crate::util::resolved_color_to_winui(&stop.color))
+            .SetColor(crate::util::working_color_to_winui(&stop.color))
             .expect("GradientStop::SetColor");
         vector
             .Append(&native)
@@ -460,13 +468,12 @@ pub(crate) fn segoe_symbol_for(name: &str) -> Option<Symbol> {
 }
 
 #[cfg(feature = "gpu")]
-impl WinUiComponent for Native<GpuSurface> {
-    /// Hosts the `GpuView` on a `SwapChainPanel`.
+impl WinUiComponent for Native<GpuContentView> {
+    /// Hosts the content on a `SwapChainPanel`.
     ///
-    /// The full wgpu/swapchain interop is provided by
-    /// `crate::gpu::GpuSurfaceHost`; this handler creates the panel and
-    /// starts the render loop.
+    /// The full wgpu/swapchain interop is provided by `crate::gpu`; this
+    /// handler creates the panel and starts the render loop.
     fn render(self, env: &Environment, renderer: &mut WinUiRenderer) -> UIElement {
-        crate::gpu::render_gpu_surface(renderer, self.into_inner(), env)
+        crate::gpu::render_gpu_content(renderer, self.into_inner(), env)
     }
 }

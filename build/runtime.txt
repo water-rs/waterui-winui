@@ -6,7 +6,7 @@ Microsoft::UI::Dispatching::IDispatcherQueue::CreateTimer
 Microsoft::UI::Dispatching::IDispatcherQueue::{TryEnqueue, TryEnqueueWithPriority, CreateTimer}
 Microsoft::UI::Dispatching::IDispatcherQueueTimer::{put_Interval, put_IsRepeating, add_Tick, remove_Tick, Start, Stop}
 Microsoft::UI::Input::IPointerPoint::{get_Position, get_Properties}
-Microsoft::UI::Input::IPointerPointProperties::{get_IsLeftButtonPressed, get_IsMiddleButtonPressed, get_IsRightButtonPressed}
+Microsoft::UI::Input::IPointerPointProperties::{get_IsLeftButtonPressed, get_IsMiddleButtonPressed, get_IsRightButtonPressed, get_PointerUpdateKind}
 Microsoft::UI::Input::InputKeyboardSource::{add_KeyDown, remove_KeyDown, GetForIsland}
 Microsoft::UI::Xaml::UIElement::get_XamlRoot
 Microsoft::UI::Xaml::Window::get_Content
@@ -125,6 +125,7 @@ Microsoft::UI::Xaml::Media::CompositionTarget::Rendering
 Microsoft::UI::Xaml::Media::DesktopAcrylicBackdrop::CreateInstance
 Microsoft::UI::Xaml::Media::IMicaBackdrop::put_Kind
 Microsoft::UI::Xaml::Media::MicaBackdrop::CreateInstance
+Microsoft::UI::Xaml::Media::ScaleTransform::CreateInstance
 Microsoft::UI::Xaml::Style
 Microsoft::UI::Xaml::UIElement::{}
 Microsoft::UI::Xaml::Window::CreateInstance

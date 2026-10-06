@@ -139,7 +139,7 @@ pub fn run_app(make_app: impl FnOnce() -> App) -> windows_core::Result<()> {
             waterui_locale::start_system_locale_listener();
             let mut renderer = WinUiRenderer::new(executor.clone());
 
-            // GPU-backed surfaces (GpuSurface, AppliedFilter, vector scenes)
+            // GPU-backed content (`GpuContentView`, `FilteredView`)
             // share one device, created on the dispatcher and installed into
             // the environment before any window content is rendered.
             let pending = Rc::new(RefCell::new(windows));

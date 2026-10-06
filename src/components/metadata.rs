@@ -49,8 +49,8 @@ use crate::bindings::*;
 use crate::executor::DispatcherQueueExecutor;
 use crate::renderer::{RenderContext, WinUiRenderer};
 use crate::util::{
-    framework, resolved_color_to_winui, solid_brush, store_event_revoker, store_retained,
-    store_watcher_guard, subscribe_then_get,
+    framework, solid_brush, store_event_revoker, store_retained, store_watcher_guard,
+    subscribe_then_get, working_color_to_winui,
 };
 
 /// Registers every metadata handler the `WinUI` backend supports.
@@ -234,10 +234,10 @@ fn apply_drop_shadow(element: &UIElement, shadow: &Shadow, env: &Environment) {
     let (initial, guard) = subscribe_then_get(&shadow.color.resolve(env), move |ctx| {
         let resolved = ctx.into_value();
         watched
-            .SetColor(resolved_color_to_winui(&resolved))
+            .SetColor(working_color_to_winui(&resolved))
             .expect("DropShadow::SetColor");
     });
-    drop.SetColor(resolved_color_to_winui(&initial))
+    drop.SetColor(working_color_to_winui(&initial))
         .expect("DropShadow::SetColor");
     store_watcher_guard(&framework(element), guard);
 }
@@ -1625,9 +1625,4 @@ fn register_passthroughs(dispatcher: &mut ViewDispatcher<(), RenderContext, UIEl
     WinUiRenderer::register_passthrough_metadata::<NavigationTransitionSource>(dispatcher);
     WinUiRenderer::register_passthrough_metadata::<NavigationTransitionDestination>(dispatcher);
     register_material_background(dispatcher);
-    #[cfg(feature = "gpu")]
-    WinUiRenderer::register_with_renderer::<Metadata<waterui_graphics::AppliedFilter>>(
-        dispatcher,
-        crate::gpu::render_applied_filter,
-    );
 }
