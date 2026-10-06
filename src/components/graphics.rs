@@ -3,7 +3,7 @@
 use waterui_core::{Environment, Native};
 use waterui_graphics::Gradient;
 use waterui_graphics::color::Color;
-use waterui_graphics::draw::{ColorStop, Extend, Interpolation, Paint, RadialGradient};
+use waterui_graphics::draw::{ColorStop, Extend, Interpolation, Paint, RadialGradient, kurbo};
 use waterui_icon::SystemIcon;
 use waterui_shape::{PathCommand, ResolvedShape};
 use windows_core::Interface;
@@ -97,51 +97,7 @@ impl WinUiComponent for Native<Gradient> {
                 );
                 brush.cast().expect("LinearGradientBrush is a Brush")
             }
-            Paint::Radial(radial) => {
-                // `Gradient::radial` always produces equal centres; the WinUI
-                // brush has a single centre.
-                assert!(
-                    radial.start_center == radial.end_center,
-                    "a radial gradient's centres must coincide"
-                );
-                let brush = RadialGradientBrush::new().expect("RadialGradientBrush::new");
-                brush
-                    .SetCenter(Point {
-                        x: radial.start_center.x as f32,
-                        y: radial.start_center.y as f32,
-                    })
-                    .expect("RadialGradientBrush::SetCenter");
-                brush
-                    .SetGradientOrigin(Point {
-                        x: radial.start_center.x as f32,
-                        y: radial.start_center.y as f32,
-                    })
-                    .expect("RadialGradientBrush::SetGradientOrigin");
-                brush
-                    .SetInterpolationSpace(interpolation_space(radial.interpolation))
-                    .expect("RadialGradientBrush::SetInterpolationSpace");
-                brush
-                    .SetSpreadMethod(spread_method(radial.extend))
-                    .expect("RadialGradientBrush::SetSpreadMethod");
-                // The brush radius is the outer of the two circles
-                // (`Gradient::radial` allows `start_radius > end_radius`).
-                let radius = radial.start_radius.max(radial.end_radius);
-                brush
-                    .SetRadiusX(radius)
-                    .expect("RadialGradientBrush::SetRadiusX");
-                brush
-                    .SetRadiusY(radius)
-                    .expect("RadialGradientBrush::SetRadiusY");
-                append_gradient_stops(
-                    &brush
-                        .cast::<IRadialGradientBrush>()
-                        .expect("RadialGradientBrush is an IRadialGradientBrush")
-                        .GradientStops()
-                        .expect("IRadialGradientBrush::GradientStops"),
-                    &radial_stops(radial),
-                );
-                brush.cast().expect("RadialGradientBrush is a Brush")
-            }
+            Paint::Radial(radial) => radial_brush(radial, &swatch),
             Paint::Sweep(_) | Paint::Mesh(_) => {
                 panic!("sweep and mesh gradients have no WinUI brush realization")
             }
@@ -150,6 +106,116 @@ impl WinUiComponent for Native<Gradient> {
         swatch.SetBackground(&brush).expect("Border::SetBackground");
         swatch.cast().expect("Border is a UIElement")
     }
+}
+
+/// A `RadialGradientBrush` filling `swatch`, kept circular as it resizes.
+fn radial_brush(radial: &RadialGradient, swatch: &Border) -> Brush {
+    // `Gradient::radial` always produces equal centres; the WinUI
+    // brush has a single centre.
+    assert!(
+        radial.start_center == radial.end_center,
+        "a radial gradient's centres must coincide"
+    );
+    let brush = RadialGradientBrush::new().expect("RadialGradientBrush::new");
+    // A unit-space radius is a circle whose size depends on the
+    // box's shorter side; relative mapping scales each axis by its
+    // own side and stretches it into an ellipse.
+    brush
+        .SetMappingMode(BrushMappingMode::Absolute)
+        .expect("RadialGradientBrush::SetMappingMode");
+    brush
+        .SetInterpolationSpace(interpolation_space(radial.interpolation))
+        .expect("RadialGradientBrush::SetInterpolationSpace");
+    brush
+        .SetSpreadMethod(spread_method(radial.extend))
+        .expect("RadialGradientBrush::SetSpreadMethod");
+    // The brush radius is the outer of the two circles
+    // (`Gradient::radial` allows `start_radius > end_radius`).
+    let radius = radial.start_radius.max(radial.end_radius);
+    let center = radial.start_center;
+    let element: FrameworkElement = swatch.cast().expect("Border is a FrameworkElement");
+    place_radial_brush(
+        &brush,
+        center,
+        radius,
+        element
+            .ActualWidth()
+            .expect("FrameworkElement::ActualWidth"),
+        element
+            .ActualHeight()
+            .expect("FrameworkElement::ActualHeight"),
+    );
+    let resized = brush.clone();
+    // The handler captures only the brush, so the element can own the
+    // registration outright. `into_token` drops the revoker's strong
+    // reference to the element without revoking; storing the revoker in the
+    // element's own attachments (or `forget`, which leaks that reference)
+    // would keep the swatch and its brush alive forever.
+    element
+        .SizeChanged(move |_sender, args| {
+            let size = args
+                .ok()
+                .expect("SizeChanged carries SizeChangedEventArgs")
+                .NewSize()
+                .expect("SizeChangedEventArgs::NewSize");
+            place_radial_brush(
+                &resized,
+                center,
+                radius,
+                f64::from(size.width),
+                f64::from(size.height),
+            );
+        })
+        .expect("FrameworkElement::SizeChanged")
+        .into_token();
+    append_gradient_stops(
+        &brush
+            .cast::<IRadialGradientBrush>()
+            .expect("RadialGradientBrush is an IRadialGradientBrush")
+            .GradientStops()
+            .expect("IRadialGradientBrush::GradientStops"),
+        &radial_stops(radial),
+    );
+    brush.cast().expect("RadialGradientBrush is a Brush")
+}
+
+/// Places the unit-space circle at `center` with `radius` onto a
+/// `width` x `height` box, in the brush's absolute units.
+fn place_radial_brush(
+    brush: &RadialGradientBrush,
+    center: kurbo::Point,
+    radius: f64,
+    width: f64,
+    height: f64,
+) {
+    let (center, radius) = radial_geometry(center, radius, width, height);
+    brush
+        .SetCenter(center)
+        .expect("RadialGradientBrush::SetCenter");
+    brush
+        .SetGradientOrigin(center)
+        .expect("RadialGradientBrush::SetGradientOrigin");
+    brush
+        .SetRadiusX(radius)
+        .expect("RadialGradientBrush::SetRadiusX");
+    brush
+        .SetRadiusY(radius)
+        .expect("RadialGradientBrush::SetRadiusY");
+}
+
+/// A unit-space radius `r` is a circle of `r * min(width, height)` points
+/// (`0.5` reaches the nearer edge from the centre), centred at the unit-space
+/// centre mapped onto the box.
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "WinRT points are f32; box coordinates fit"
+)]
+fn radial_geometry(center: kurbo::Point, radius: f64, width: f64, height: f64) -> (Point, f64) {
+    let center = Point {
+        x: (center.x * width) as f32,
+        y: (center.y * height) as f32,
+    };
+    (center, radius * width.min(height))
 }
 
 /// Remaps a radial gradient's stops onto the `RadialGradientBrush` ramp, in
@@ -569,5 +635,25 @@ mod tests {
         let radial =
             RadialGradient::two_point((0.5, 0.5), 0.2, (0.5, 0.5), 0.5).extend(Extend::Repeat);
         radial_stops(&radial);
+    }
+
+    fn assert_close(actual: f64, expected: f64) {
+        assert!(
+            (actual - expected).abs() < 1e-9,
+            "expected {expected}, got {actual}"
+        );
+    }
+
+    #[test]
+    fn radial_radius_is_a_circle_on_the_shorter_side_of_a_non_square_box() {
+        let (center, radius) = radial_geometry(kurbo::Point::new(0.5, 0.5), 0.5, 200.0, 100.0);
+        assert_close(f64::from(center.x), 100.0);
+        assert_close(f64::from(center.y), 50.0);
+        assert_close(radius, 50.0);
+
+        let (center, radius) = radial_geometry(kurbo::Point::new(0.25, 0.75), 0.25, 120.0, 300.0);
+        assert_close(f64::from(center.x), 30.0);
+        assert_close(f64::from(center.y), 225.0);
+        assert_close(radius, 30.0);
     }
 }
