@@ -72,6 +72,7 @@ pub(crate) mod gpu;
 pub(crate) mod key_input;
 pub(crate) mod layout;
 pub(crate) mod renderer;
+pub(crate) mod session_end;
 pub(crate) mod theme;
 pub(crate) mod util;
 pub(crate) mod window;
