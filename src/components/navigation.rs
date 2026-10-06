@@ -17,7 +17,7 @@ use windows_core::{IInspectable, Interface};
 #[allow(clippy::wildcard_imports)] // the generated namespace
 use crate::bindings::*;
 use crate::component::WinUiComponent;
-use crate::executor::enqueue_on_ui_thread;
+use crate::executor::{UiThread, enqueue_on_ui_thread};
 use crate::renderer::WinUiRenderer;
 use crate::util::{
     children, framework, solid_brush, store_event_revoker, store_watcher_guards,
@@ -280,6 +280,7 @@ struct StackEntry {
 struct WinUiNavigationController {
     inner: Rc<RefCell<ControllerInner>>,
     env: Rc<RefCell<Environment>>,
+    ui: UiThread,
 }
 
 struct ControllerInner {
@@ -289,7 +290,7 @@ struct ControllerInner {
 }
 
 impl WinUiNavigationController {
-    fn new(host: Grid, env: Environment) -> Self {
+    fn new(host: Grid, env: Environment, ui: UiThread) -> Self {
         Self {
             inner: Rc::new(RefCell::new(ControllerInner {
                 host,
@@ -297,6 +298,7 @@ impl WinUiNavigationController {
                 controller: None,
             })),
             env: Rc::new(RefCell::new(env)),
+            ui,
         }
     }
 
@@ -338,8 +340,7 @@ impl CustomNavigationController for WinUiNavigationController {
 
         for builder in transaction.inserted {
             let view = builder.build();
-            let mut renderer =
-                WinUiRenderer::for_current_thread().expect("rendering requires the UI thread");
+            let mut renderer = WinUiRenderer::new(self.ui.clone());
             let content = renderer.render_any(view.content, &env);
             let level = build_level(view.bar, content, &env, &mut renderer, Some(self.clone()));
             children.Append(&level).expect("Append destination");
@@ -389,7 +390,8 @@ impl WinUiComponent for NavigationStack<(), ()> {
         let root = self.into_inner();
 
         let host = Grid::new().expect("Grid::new");
-        let controller_impl = WinUiNavigationController::new(host.clone(), env.clone());
+        let controller_impl =
+            WinUiNavigationController::new(host.clone(), env.clone(), renderer.ui_thread().clone());
         let navigation_controller = NavigationController::new(controller_impl.clone());
         controller_impl.inner.borrow_mut().controller = Some(navigation_controller.clone());
         let mut child_env = env.clone();
@@ -441,9 +443,9 @@ impl WinUiComponent for NavigationSplitLayout {
 
         let detail_for = {
             let env = env.clone();
+            let ui = renderer.ui_thread().clone();
             Rc::new(move |selection: Option<Id>| -> UIElement {
-                let mut detail_renderer = WinUiRenderer::for_current_thread()
-                    .expect("detail rendering requires the UI thread");
+                let mut detail_renderer = WinUiRenderer::new(ui.clone());
                 match selection {
                     Some(id) => {
                         detail_renderer.render_any(AnyView::new(detail_builder.build(id)), &env)
@@ -466,14 +468,14 @@ impl WinUiComponent for NavigationSplitLayout {
             .expect("INavigationView2::SetPaneCustomContent");
 
         let mut guards = Vec::new();
-        let queue = renderer.executor().queue().clone();
+        let ui = renderer.ui_thread().clone();
         let weak = nav.downgrade().expect("weak ref");
         guards.push(primary_selection.watch(move |ctx| {
             let selection = ctx.into_value();
             let weak = weak.clone();
-            let queue = queue.clone();
+            let ui = ui.clone();
             let detail_for = detail_for.clone();
-            enqueue_on_ui_thread(&queue, move || {
+            ui.enqueue(move || {
                 if let Some(nav) = weak.upgrade() {
                     nav.cast::<ContentControl>()
                         .expect("ContentControl")

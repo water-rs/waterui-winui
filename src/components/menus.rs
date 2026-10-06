@@ -9,7 +9,7 @@ use windows_core::Interface;
 #[allow(clippy::wildcard_imports)] // the generated namespace
 use crate::bindings::*;
 use crate::component::WinUiComponent;
-use crate::executor::enqueue_on_ui_thread;
+use crate::executor::{UiThread, enqueue_on_ui_thread};
 use crate::renderer::WinUiRenderer;
 use crate::util::{framework, store_event_revoker, store_watcher_guard};
 
@@ -27,25 +27,20 @@ impl WinUiComponent for Native<ResolvedMenu> {
             .expect("ContentControl::SetContent");
 
         let flyout = MenuFlyout::new().expect("MenuFlyout::new");
-        rebuild_flyout(
-            &flyout,
-            &menu.items.snapshot(),
-            env,
-            renderer.executor().queue(),
-        );
+        rebuild_flyout(&flyout, &menu.items.snapshot(), env, renderer.ui_thread());
 
-        let queue = renderer.executor().queue().clone();
+        let ui = renderer.ui_thread().clone();
         let weak = flyout.downgrade().expect("MenuFlyout supports weak refs");
         let env_for_watch = env.clone();
         let items_guard = menu.items.watch(move |ctx| {
             let items = ctx.into_value();
             let weak = weak.clone();
-            let queue = queue.clone();
+            let ui = ui.clone();
             let env = env_for_watch.clone();
-            let queue_in = queue.clone();
-            enqueue_on_ui_thread(&queue, move || {
+            let ui_in = ui.clone();
+            ui.enqueue(move || {
                 if let Some(flyout) = weak.upgrade() {
-                    rebuild_flyout(&flyout, &items, &env, &queue_in);
+                    rebuild_flyout(&flyout, &items, &env, &ui_in);
                 }
             });
         });
@@ -67,14 +62,14 @@ pub(crate) fn rebuild_flyout(
     flyout: &MenuFlyout,
     items: &[ResolvedMenuItem],
     env: &Environment,
-    queue: &DispatcherQueue,
+    ui: &UiThread,
 ) {
     let collection =
         crate::util::vector::<_, MenuFlyoutItemBase>(&flyout.Items().expect("MenuFlyout::Items"));
     collection.Clear().expect("IVector::Clear");
     for item in items {
         collection
-            .Append(&build_menu_item(item, env, queue))
+            .Append(&build_menu_item(item, env, ui))
             .expect("IVector::Append");
     }
 }
@@ -83,7 +78,7 @@ pub(crate) fn rebuild_flyout(
 fn build_menu_item(
     item: &ResolvedMenuItem,
     env: &Environment,
-    queue: &DispatcherQueue,
+    ui: &UiThread,
 ) -> MenuFlyoutItemBase {
     match item {
         ResolvedMenuItem::Command(command) => {
@@ -118,7 +113,7 @@ fn build_menu_item(
             store_event_revoker(&framework(&entry.cast().expect("UIElement")), revoker);
 
             let weak = entry.downgrade().expect("weak ref");
-            let queue_for_watch = queue.clone();
+            let queue_for_watch = ui.queue().clone();
             let disabled_guard = command.disabled.watch(move |ctx| {
                 let disabled = ctx.into_value();
                 let weak = weak.clone();
@@ -157,7 +152,7 @@ fn build_menu_item(
             );
             for child in nested.items.snapshot() {
                 items
-                    .Append(&build_menu_item(&child, env, queue))
+                    .Append(&build_menu_item(&child, env, ui))
                     .expect("IVector::Append");
             }
             entry
@@ -175,7 +170,7 @@ fn build_menu_item(
                 .action(move || quit.request())
                 .shortcut(Shortcut::new("q").command())
                 .resolve(env);
-            build_menu_item(&ResolvedMenuItem::Command(command), env, queue)
+            build_menu_item(&ResolvedMenuItem::Command(command), env, ui)
         }
     }
 }
