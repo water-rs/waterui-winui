@@ -1,4 +1,12 @@
 Microsoft::UI::Composition::ICompositionObject::get_Compositor
+Microsoft::UI::Composition::CompositionGraphicsDevice
+Microsoft::UI::Composition::ICompositionGraphicsDevice4::CaptureAsync
+Microsoft::UI::Composition::IContainerVisual::get_Children
+Microsoft::UI::Composition::IRedirectVisual::put_Source
+Microsoft::UI::Composition::IVisualCollection::InsertAtTop
+Microsoft::Graphics::DirectX::{DirectXPixelFormat, DirectXAlphaMode}
+extras::ICompositorInterop::CreateGraphicsDevice
+extras::ICompositionDrawingSurfaceInterop2::CopySurface
 Microsoft::UI::Dispatching::DispatcherQueue::GetForCurrentThread
 Microsoft::UI::Dispatching::DispatcherQueueHandler
 Microsoft::UI::Dispatching::DispatcherQueuePriority
@@ -216,8 +224,6 @@ Microsoft::UI::Windowing::IAppWindowChangedEventArgs::{get_DidSizeChange, get_Di
 Microsoft::UI::Windowing::IAppWindow2::{ResizeClient, get_ClientSize}
 Microsoft::UI::Windowing::OverlappedPresenter::Create
 Microsoft::UI::Windowing::IOverlappedPresenter::SetBorderAndTitleBar
-Microsoft::UI::Xaml::Media::Imaging::RenderTargetBitmap::CreateInstance
-Microsoft::UI::Xaml::Media::Imaging::RenderTargetBitmap::{RenderAsync, GetPixelsAsync}
 Microsoft::UI::Xaml::Markup::XamlReader::Load
 Microsoft::UI::Xaml::RoutedEventHandler
 Microsoft::UI::Xaml::RoutedEventArgs
@@ -300,7 +306,6 @@ Microsoft::UI::Xaml::Input::IDoubleTappedRoutedEventArgs::{GetPosition}
 Microsoft::UI::Xaml::Input::IRightTappedRoutedEventArgs::{GetPosition}
 Windows::Storage::Streams::DataReader::{FromBuffer, ReadBytes, Close}
 Windows::Storage::Streams::IBuffer
-Microsoft::UI::Xaml::Media::Imaging::RenderTargetBitmap::{PixelWidth, PixelHeight}
 Microsoft::UI::Xaml::Window::get_AppWindow
 Microsoft::UI::Windowing::IOverlappedPresenter::{Minimize, Maximize, Restore, put_IsAlwaysOnTop, get_State}
 Microsoft::UI::Windowing::OverlappedPresenterState::{Minimized, Maximized, Restored}

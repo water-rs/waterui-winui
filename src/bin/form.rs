@@ -27,6 +27,8 @@ mod example {
     use waterui::reactive::binding;
     use waterui::text::font::{FontWeight, ResolvedFont};
     use waterui::window::{Window, WindowState};
+    #[cfg(feature = "gpu")]
+    use waterui_graphics::filter_view::FilterViewExt;
 
     #[form]
     struct RegistrationForm {
@@ -68,6 +70,18 @@ mod example {
         scroll(
             vstack((
                 text("WaterUI Form Examples").title(),
+                #[cfg(feature = "gpu")]
+                vstack((
+                    text("Filter check").sub_headline(),
+                    text(
+                        "Expected: a soft blurred cyan bar fading into the background; no sharp red edge",
+                    )
+                    .caption(),
+                    Red.size(160.0, 48.0)
+                        .padding_with(24.0)
+                        .invert()
+                        .gaussian_blur(8.0),
+                )),
                 "Demonstrating form building with reactive data binding",
                 Divider,
                 spacer(),

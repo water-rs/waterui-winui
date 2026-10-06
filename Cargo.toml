@@ -30,7 +30,7 @@ workspace = true
 
 [features]
 default = ["gpu"]
-gpu = ["waterui-graphics/gpu", "waterui-shape/gpu"]
+gpu = ["waterui-graphics/gpu", "waterui-shape/gpu", "dep:windows"]
 self-contained = ["dep:windows-reactor-setup"]
 
 [target.'cfg(target_os = "windows")'.dependencies]
@@ -40,6 +40,15 @@ windows-future = "0.100"
 windows-numerics = "0.100"
 windows-reference = { version = "0.100", features = ["std"] }
 windows-time = "0.100"
+windows = { version = "0.62", optional = true, default-features = false, features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Direct3D",
+    "Win32_Graphics_Direct3D11",
+    "Win32_Graphics_Direct3D12",
+    "Win32_Graphics_Dxgi",
+    "Win32_Graphics_Dxgi_Common",
+    "Win32_Security",
+] }
 async-channel = "2"
 waterui = { version = "0.5.0", default-features = false }
 waterui-core = "0.5.0"
