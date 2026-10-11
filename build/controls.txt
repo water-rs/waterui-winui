@@ -645,6 +645,7 @@ Microsoft::UI::Xaml::Controls::TabViewItem::CreateInstance
 Microsoft::UI::Xaml::Controls::ITabViewItem::{put_Header, get_Header, put_IconSource, put_IsClosable}
 Microsoft::UI::Xaml::Controls::MenuFlyoutItem::CreateInstance
 Microsoft::UI::Xaml::Controls::IMenuFlyoutItem::{put_Text, get_Text, put_Icon, add_Click, remove_Click}
+Microsoft::UI::Xaml::Controls::IMenuFlyoutItem::put_KeyboardAcceleratorTextOverride
 Microsoft::UI::Xaml::Controls::MenuFlyoutSubItem::CreateInstance
 Microsoft::UI::Xaml::Controls::IMenuFlyoutSubItem::{put_Text, get_Items}
 Microsoft::UI::Xaml::Controls::MenuFlyoutSeparator::CreateInstance
@@ -667,7 +668,7 @@ Microsoft::UI::Xaml::Controls::IColorPicker::{get_Color, put_Color, add_ColorCha
 Microsoft::UI::Xaml::Controls::INumberBox::{get_Value, put_Value, add_ValueChanged, remove_ValueChanged, put_Minimum, put_Maximum, put_SmallChange, put_SpinButtonPlacementMode, put_Header, put_PlaceholderText}
 Microsoft::UI::Xaml::Controls::NumberBoxSpinButtonPlacementMode
 Microsoft::UI::Xaml::Controls::CalendarViewSelectionMode
-Microsoft::UI::Xaml::Controls::Primitives::IFlyoutBase::ShowAt
+Microsoft::UI::Xaml::Controls::Primitives::IFlyoutBase::{ShowAt, add_Opened, remove_Opened, add_Closed, remove_Closed}
 Microsoft::UI::Xaml::Media::FontFamily::CreateInstanceWithName
 Microsoft.UI.Xaml.Shapes::Path
 Microsoft.UI.Xaml.Shapes::Path::Stretch

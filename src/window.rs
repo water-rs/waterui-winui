@@ -7,6 +7,7 @@ use nami::Signal;
 use waterui::window::{
     UserAttention, Window as WaterUiWindow, WindowLevel, WindowState, WindowStyle,
 };
+use waterui_controls::menu::ResolvedMenuItem;
 use waterui_core::Environment;
 use waterui_layout::Size;
 use windows_core::Interface;
@@ -15,6 +16,7 @@ use windows_core::Interface;
 use crate::bindings::*;
 use crate::executor::{UiThread, enqueue_on_ui_thread};
 use crate::renderer::WinUiRenderer;
+use crate::session_end::SessionEnd;
 use crate::util::{
     framework, solid_brush, store_event_revoker, store_watcher_guards, subscribe_then_get,
 };
@@ -22,18 +24,22 @@ use crate::util::{
 /// Opens one `WinUI` `Window` for a `WaterUI` window description and keeps its
 /// reactive state (title, open state, background) synchronized.
 ///
-/// The returned window owns every watcher and event subscription through the
-/// root element's attachment bag; keep it alive for the window's lifetime.
+/// The window owns every watcher and event subscription through the root
+/// element's attachment bag; the bag dies when the window's `Closed` handler
+/// drops the window.
 pub fn open_window(
     desc: WaterUiWindow,
     env: &Environment,
     renderer: &mut WinUiRenderer,
-) -> windows_core::Result<Window> {
+    session_end: &SessionEnd,
+    menu_bar: &nami::Computed<Vec<ResolvedMenuItem>>,
+) -> windows_core::Result<()> {
     let window = Window::new()?;
     let ui = renderer.ui_thread().clone();
 
     // Content.
-    let content = renderer.render_any(desc.content.build(), env);
+    let view = renderer.render_any(desc.content.build(), env);
+    let content = window_root(&view, menu_bar, env, &ui)?;
     window.SetContent(&content)?;
     crate::theme::attach(&framework(&content), env)?;
 
@@ -49,17 +55,19 @@ pub fn open_window(
     // of the colour.
     {
         let resolved = waterui::window::resolve_background(&desc.background, env);
-        let root = content.clone();
+        let weak = content.downgrade().expect("UIElement weak ref");
         let queue = window.DispatcherQueue()?;
         let (initial, guard) = subscribe_then_get(&resolved, move |ctx| {
             let color = ctx.into_value();
-            let root = root.clone();
+            let weak = weak.clone();
             let queue = queue.clone();
             enqueue_on_ui_thread(&queue, move || {
-                root.cast::<Panel>()
-                    .expect("window content is a Panel")
-                    .SetBackground(&solid_brush(&color).expect("SolidColorBrush"))
-                    .expect("Panel::SetBackground");
+                if let Some(root) = weak.upgrade() {
+                    root.cast::<Panel>()
+                        .expect("window content is a Panel")
+                        .SetBackground(&solid_brush(&color).expect("SolidColorBrush"))
+                        .expect("Panel::SetBackground");
+                }
             });
         });
         root_cast_panel(&content)?
@@ -114,19 +122,38 @@ pub fn open_window(
     }));
     install_hwnd_gate(&window, &content, hwnd_state.clone())?;
 
+    // Logoff and shutdown reach every top-level window as
+    // `WM_QUERYENDSESSION`/`WM_ENDSESSION`; the subclass reports them to the
+    // termination machine.
+    let session_end = session_end.clone();
+    hwnd_state
+        .borrow_mut()
+        .when_created(move |hwnd| session_end.install(hwnd));
+
     // Close request (user presses X) must mirror into `state`. Under
     // `LastWindowPolicy::Quit` the tracked count reaching zero files a
     // `Required` termination — the `winit` runner's
     // `exit_if_last_window_closed` idiom.
+    //
+    // The cell below is the window's only Rust-side owner, kept by this
+    // handler: `Closed` fires once the native window is gone, so taking
+    // the window out of it releases the tree. The drop itself is deferred
+    // to the dispatcher — the handler's own subscription lives in that
+    // tree and cannot die mid-callback.
     let state = desc.state.clone();
     let closed_hwnd_state = hwnd_state.clone();
     let termination = env.get::<crate::app::WindowTermination>().cloned();
+    let owner: Rc<RefCell<Option<Window>>> = Rc::new(RefCell::new(None));
+    let closed_owner = owner.clone();
+    let ui_for_closed = ui.clone();
     let revoker = window.Closed(move |_sender, _args| {
         closed_hwnd_state.borrow_mut().destroyed();
         state.set(WindowState::Closed);
         if let Some(termination) = &termination {
             termination.closed();
         }
+        let closed = closed_owner.borrow_mut().take();
+        ui_for_closed.enqueue(move || drop(closed));
     })?;
     store_event_revoker(&framework(&content), revoker);
 
@@ -137,8 +164,12 @@ pub fn open_window(
     install_attention(&window, &desc.attention, &content, &hwnd_state, &ui)?;
     install_resize_increments(desc.resize_increments.as_ref(), &content, &hwnd_state, &ui);
 
+    // The `Closed` handler holds the window from here on: nothing else
+    // keeps a `Window` reference, so `Closed` emptying the cell ends the
+    // whole tree — watchers, revokers and the menu-bar rebuild included.
+    *owner.borrow_mut() = Some(window.clone());
     window.Activate()?;
-    Ok(window)
+    Ok(())
 }
 
 /// Applies programmatic changes of the window's open state while the native
@@ -344,6 +375,34 @@ fn install_attention(
     })?;
     store_event_revoker(&framework(content), revoker);
     Ok(())
+}
+
+/// Stacks the app's menu bar over the window's content. The `Grid` is the
+/// window's root, so the background and the window-lifetime attachments
+/// live on it.
+fn window_root(
+    view: &UIElement,
+    menu_bar: &nami::Computed<Vec<ResolvedMenuItem>>,
+    env: &Environment,
+    ui: &UiThread,
+) -> windows_core::Result<UIElement> {
+    let root = Grid::new()?;
+    let rows = crate::util::vector::<_, RowDefinition>(&root.RowDefinitions()?);
+    for unit in [GridUnitType::Auto, GridUnitType::Star] {
+        let row = RowDefinition::new()?;
+        row.SetHeight(GridLength {
+            value: 1.0,
+            grid_unit_type: unit,
+        })?;
+        rows.Append(&row)?;
+    }
+    let bar = crate::components::menus::build_menu_bar(menu_bar, env, ui);
+    Grid::SetRow(&framework(&bar), 0)?;
+    Grid::SetRow(&framework(view), 1)?;
+    let children = crate::util::children(&root);
+    children.Append(&bar)?;
+    children.Append(view)?;
+    root.cast()
 }
 
 /// The content root must be a `Panel` to carry a background brush; when it
