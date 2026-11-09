@@ -5,7 +5,7 @@ use std::rc::Rc;
 
 use nami::Signal;
 use waterui::window::{
-    UserAttention, Window as WaterUiWindow, WindowLevel, WindowState, WindowStyle,
+    UserAttention, Window as WaterUiWindow, WindowIcon, WindowLevel, WindowState, WindowStyle,
 };
 use waterui_core::Environment;
 use waterui_layout::Size;
@@ -127,6 +127,7 @@ pub fn open_window(
     install_state_writeback(&window, &desc.state, &desc.level, &content)?;
     install_level(&window, &desc.level, &content, &hwnd_state);
     install_attention(&window, &desc.attention, &content, &hwnd_state)?;
+    install_icon(&window, &desc.icon, &content, &hwnd_state)?;
     install_resize_increments(
         &window,
         desc.resize_increments.as_ref(),
@@ -339,6 +340,113 @@ fn install_attention(
     })?;
     store_event_revoker(&framework(content), revoker);
     Ok(())
+}
+
+/// The window's own icon → the `HWND`'s `WM_SETICON` icons, applied while
+/// the native window exists and replayed at its creation.
+///
+/// The window message is the primitive both the caption and the taskbar read,
+/// and the one that can give the icon back: a null icon makes the window show
+/// its class icon — the application's — again, which `AppWindow.SetIcon` has
+/// no documented form for.
+fn install_icon(
+    window: &Window,
+    icon: &nami::Binding<Option<WindowIcon>>,
+    content: &UIElement,
+    hwnd_state: &SharedHwnd,
+) -> windows_core::Result<()> {
+    // The icon the window currently shows; the window does not own it, so it
+    // is destroyed once a replacement is in place.
+    let shown: Rc<RefCell<Option<NativeIcon>>> = Rc::default();
+    let queue = window.DispatcherQueue()?;
+    let hwnd_watcher = hwnd_state.clone();
+    let watcher_shown = shown.clone();
+    let (_, guard) = subscribe_then_get(icon, move |ctx| {
+        let icon = ctx.into_value();
+        let queue = queue.clone();
+        let hwnd_watcher = hwnd_watcher.clone();
+        let shown = watcher_shown.clone();
+        enqueue_on_ui_thread(&queue, move || {
+            if let Some(hwnd) = hwnd_watcher.borrow().hwnd {
+                apply_icon(hwnd, icon.as_ref(), &shown);
+            }
+        });
+    });
+    store_watcher_guards(&framework(content), vec![guard]);
+    let icon = icon.clone();
+    hwnd_state.borrow_mut().when_created(move |hwnd| {
+        // A window without its own icon already shows the application's.
+        if let Some(icon) = icon.snapshot() {
+            apply_icon(hwnd, Some(&icon), &shown);
+        }
+    });
+    Ok(())
+}
+
+/// Puts `icon` — or, for `None`, the class icon — on the window's caption
+/// and taskbar entry, then releases the icon it replaced.
+fn apply_icon(hwnd: HWND, icon: Option<&WindowIcon>, shown: &RefCell<Option<NativeIcon>>) {
+    let native = icon.map(NativeIcon::new);
+    let handle = native.as_ref().map_or(0, |native| native.0 as LPARAM);
+    for kind in [ICON_SMALL, ICON_BIG] {
+        unsafe {
+            // The result is the previous icon handle, which `shown` owns.
+            SendMessageW(
+                hwnd,
+                WM_SETICON as u32,
+                kind.cast_unsigned() as WPARAM,
+                handle,
+            );
+        }
+    }
+    *shown.borrow_mut() = native;
+}
+
+/// An icon handle this backend created, destroyed with the value.
+struct NativeIcon(HICON);
+
+impl NativeIcon {
+    /// A 32-bit alpha icon from the straight-alpha RGBA pixels.
+    fn new(icon: &WindowIcon) -> Self {
+        // GDI takes BGRA rows, top to bottom.
+        let bgra: Vec<u8> = icon
+            .rgba()
+            .chunks_exact(4)
+            .flat_map(|pixel| [pixel[2], pixel[1], pixel[0], pixel[3]])
+            .collect();
+        // The 1-bit AND mask, rows padded to 16 bits. All zero: the colour
+        // bitmap's alpha channel alone decides transparency.
+        let mask_stride = usize::try_from(icon.width().div_ceil(16) * 2).expect("mask row fits");
+        let mask = vec![0_u8; mask_stride * usize::try_from(icon.height()).expect("height fits")];
+        let width = i32::try_from(icon.width()).expect("icon width fits an i32");
+        let height = i32::try_from(icon.height()).expect("icon height fits an i32");
+        let handle = unsafe {
+            CreateIcon(
+                core::ptr::null_mut(),
+                width,
+                height,
+                1,
+                32,
+                mask.as_ptr(),
+                bgra.as_ptr(),
+            )
+        };
+        assert!(
+            !handle.is_null(),
+            "CreateIcon failed for a {width}x{height} window icon: {}",
+            std::io::Error::last_os_error()
+        );
+        Self(handle)
+    }
+}
+
+impl Drop for NativeIcon {
+    fn drop(&mut self) {
+        unsafe {
+            // A failure leaves nothing to undo.
+            let _ = DestroyIcon(self.0);
+        }
+    }
 }
 
 /// The content root must be a `Panel` to carry a background brush; when it
