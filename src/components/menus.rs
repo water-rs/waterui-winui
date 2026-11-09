@@ -8,7 +8,8 @@ use std::rc::Rc;
 use nami::{Computed, Signal};
 use waterui::app::Quit;
 use waterui_controls::menu::{
-    CommandExt, ResolvedMenu, ResolvedMenuItem, ResolvedNestedMenu, Shortcut,
+    CloseWindowChord, CommandExt, MenuItem, NamedKey, ResolvedCommand, ResolvedMenu,
+    ResolvedMenuItem, ResolvedNestedMenu, Shortcut, ShortcutKey,
 };
 use waterui_core::{Environment, Native};
 use windows_core::Interface;
@@ -19,6 +20,7 @@ use crate::component::WinUiComponent;
 use crate::executor::{UiThread, enqueue_on_ui_thread};
 use crate::renderer::WinUiRenderer;
 use crate::util::{framework, store_event_revoker, store_watcher_guard};
+use crate::window::OwnerWindow;
 
 impl WinUiComponent for Native<ResolvedMenu> {
     /// Renders a `DropDownButton` that opens a `MenuFlyout` of resolved items.
@@ -275,20 +277,50 @@ fn build_menu_item(
                 .cast()
                 .expect("MenuFlyoutSubItem is a MenuFlyoutItemBase")
         }
-        ResolvedMenuItem::Quit => {
-            let quit = env
-                .get::<Quit>()
-                .expect("Quit is installed before rendering")
-                .clone();
-            // The platform quit command — hydrolysis's `quit_command`
-            // spells it the same way for Windows.
-            let command = "Exit"
-                .action(move || quit.request())
-                .shortcut(Shortcut::new("q").command())
-                .resolve(env);
-            build_menu_item(&ResolvedMenuItem::Command(command), env, ui, arming)
-        }
+        ResolvedMenuItem::Quit => build_menu_item(
+            &ResolvedMenuItem::Command(quit_command(env)),
+            env,
+            ui,
+            arming,
+        ),
+        ResolvedMenuItem::CloseWindow => build_menu_item(
+            &ResolvedMenuItem::Command(close_window_command(env)),
+            env,
+            ui,
+            arming,
+        ),
     }
+}
+
+/// The platform quit command — hydrolysis's `quit_command` spells it the same
+/// way for Windows.
+fn quit_command(env: &Environment) -> ResolvedCommand {
+    let quit = env
+        .get::<Quit>()
+        .expect("Quit is installed before rendering")
+        .clone();
+    "Exit"
+        .action(move || quit.request())
+        .shortcut(Shortcut::new('q').command())
+        .resolve(env)
+}
+
+/// The command a declared `MenuItem::CloseWindow` stands for: it closes the
+/// window the menu is mounted in, with the application's one decided close
+/// chord — Ctrl+W where the command modifier is control — and reads disabled
+/// in a window declared without a close button, as Hydrolysis builds it.
+fn close_window_command(env: &Environment) -> ResolvedCommand {
+    let owner = env
+        .get::<OwnerWindow>()
+        .expect("a window installs its OwnerWindow before rendering its menus")
+        .clone();
+    let closable = owner.closable();
+    let mut command =
+        MenuItem::close_window_command(env, CloseWindowChord::of(env), move || owner.close());
+    if !closable {
+        command.disabled = Computed::constant(true);
+    }
+    command
 }
 
 /// Arms `shortcut` as `entry`'s `KeyboardAccelerator` under `arming`'s
@@ -300,8 +332,8 @@ fn build_menu_item(
 /// in the window's visual-tree order — the menu bar wins — unlike
 /// Hydrolysis's most-recent-source rule. Handling `Invoked` runs the
 /// command once instead of also raising the row's `Click`. A shortcut on a
-/// named key, or on a character the layout types only with modifiers held,
-/// arms nothing and only shows its hint.
+/// character the layout types only with modifiers held arms nothing and only
+/// shows its hint.
 fn arm_shortcut(
     entry: &MenuFlyoutItem,
     shortcut: &Shortcut,
@@ -310,14 +342,14 @@ fn arm_shortcut(
 ) {
     let chord = accelerator_chord(shortcut);
     if chord.is_none() || matches!(arming, ShortcutArming::WhileOpen(_)) {
-        // Named keys such as Delete or F5 have no chord WaterUI dispatches
-        // yet (water-rs/waterui#2038), and a character such as `!` needs a
-        // Shift the shortcut does not declare: like Hydrolysis, the row
-        // shows the hint. A parked chord gets the same treatment — the
-        // accelerator is not on the row while the menu is closed, so
-        // `WinUI` would draw no text without the override.
+        // A character such as `!` needs a Shift the shortcut does not
+        // declare: like Hydrolysis, the row shows the hint. A parked chord
+        // gets the same treatment — the accelerator is not on the row while
+        // the menu is closed, so `WinUI` would draw no text without the
+        // override. The hint is the framework's own rendering of the
+        // shortcut, so a menu row and an application's listing agree.
         entry
-            .SetKeyboardAcceleratorTextOverride(hint_text(shortcut).as_str())
+            .SetKeyboardAcceleratorTextOverride(shortcut.to_string().as_str())
             .expect("MenuFlyoutItem::SetKeyboardAcceleratorTextOverride");
     }
     let Some((key, modifiers)) = chord else {
@@ -361,21 +393,107 @@ fn arm_shortcut(
     }
 }
 
-/// The `KeyboardAccelerator` key and modifiers for `shortcut`, matching
-/// Hydrolysis off macOS: the key is compared case insensitively and the
-/// command modifier is Control. `None` for a key that is not a single
-/// character, since Hydrolysis dispatches single-character presses only, and
-/// for a character the active keyboard layout types only with modifiers held
-/// (`!` is Shift+1 on US), whose key alone is a different character.
+/// The virtual key a named shortcut key arms: the Win32 virtual-key code of
+/// the key, which `KeyboardAccelerator` takes as a `VirtualKey`.
+///
+/// # Panics
+///
+/// On a named key the platform's menu accelerators cannot arm.
+fn named_virtual_key(named: NamedKey) -> VirtualKey {
+    let code = match named {
+        NamedKey::Backspace => 0x08,
+        NamedKey::Tab => 0x09,
+        NamedKey::Clear => 0x0C,
+        NamedKey::Enter => 0x0D,
+        NamedKey::Pause => 0x13,
+        NamedKey::Escape => 0x1B,
+        NamedKey::PageUp => 0x21,
+        NamedKey::PageDown => 0x22,
+        NamedKey::End => 0x23,
+        NamedKey::Home => 0x24,
+        NamedKey::ArrowLeft => 0x25,
+        NamedKey::ArrowUp => 0x26,
+        NamedKey::ArrowRight => 0x27,
+        NamedKey::ArrowDown => 0x28,
+        NamedKey::Select => 0x29,
+        NamedKey::Print => 0x2A,
+        NamedKey::Execute => 0x2B,
+        NamedKey::PrintScreen => 0x2C,
+        NamedKey::Insert => 0x2D,
+        NamedKey::Delete => 0x2E,
+        NamedKey::Help => 0x2F,
+        NamedKey::ContextMenu => 0x5D,
+        NamedKey::F1 => 0x70,
+        NamedKey::F2 => 0x71,
+        NamedKey::F3 => 0x72,
+        NamedKey::F4 => 0x73,
+        NamedKey::F5 => 0x74,
+        NamedKey::F6 => 0x75,
+        NamedKey::F7 => 0x76,
+        NamedKey::F8 => 0x77,
+        NamedKey::F9 => 0x78,
+        NamedKey::F10 => 0x79,
+        NamedKey::F11 => 0x7A,
+        NamedKey::F12 => 0x7B,
+        NamedKey::F13 => 0x7C,
+        NamedKey::F14 => 0x7D,
+        NamedKey::F15 => 0x7E,
+        NamedKey::F16 => 0x7F,
+        NamedKey::F17 => 0x80,
+        NamedKey::F18 => 0x81,
+        NamedKey::F19 => 0x82,
+        NamedKey::F20 => 0x83,
+        NamedKey::F21 => 0x84,
+        NamedKey::F22 => 0x85,
+        NamedKey::F23 => 0x86,
+        NamedKey::F24 => 0x87,
+        _ => panic!(
+            "the shortcut key `{named}` has no Windows virtual key, so a WinUI menu accelerator \
+             cannot arm it; choose a key Windows menus support"
+        ),
+    };
+    VirtualKey(code)
+}
+
+/// The `KeyboardAccelerator` key and modifiers for `shortcut`: the key is
+/// compared case insensitively and the command modifier is Control, as in
+/// Hydrolysis off macOS. `None` for a character the active keyboard layout
+/// types only with modifiers held (`!` is Shift+1 on US), whose key alone is
+/// a different character.
+///
+/// # Panics
+///
+/// When the active keyboard layout cannot type the character at all, or the
+/// shortcut is on a named key Windows menus cannot arm.
+fn accelerator_chord(shortcut: &Shortcut) -> Option<(VirtualKey, VirtualKeyModifiers)> {
+    let virtual_key = match &shortcut.key {
+        ShortcutKey::Named(named) => named_virtual_key(*named),
+        ShortcutKey::Character(character) => character_virtual_key(*character)?,
+    };
+    let modifiers = shortcut.modifiers;
+    let mut chord = VirtualKeyModifiers::None.0;
+    if modifiers.control() || modifiers.command() {
+        chord |= VirtualKeyModifiers::Control.0;
+    }
+    if modifiers.option() {
+        chord |= VirtualKeyModifiers::Menu.0;
+    }
+    if modifiers.shift() {
+        chord |= VirtualKeyModifiers::Shift.0;
+    }
+    Some((virtual_key, VirtualKeyModifiers(chord)))
+}
+
+/// The virtual key that types `character` on the active keyboard layout, or
+/// `None` when the layout types it only with modifiers held.
 ///
 /// # Panics
 ///
 /// When the active keyboard layout cannot type the character at all.
-fn accelerator_chord(shortcut: &Shortcut) -> Option<(VirtualKey, VirtualKeyModifiers)> {
-    let key = shortcut.key.to_lowercase();
-    let mut chars = key.chars();
-    let (Some(character), None) = (chars.next(), chars.next()) else {
-        return None;
+fn character_virtual_key(character: char) -> Option<VirtualKey> {
+    let mut lowercase = character.to_lowercase();
+    let (Some(character), None) = (lowercase.next(), lowercase.next()) else {
+        panic!("shortcut key {character:?} cannot be typed on the active keyboard layout");
     };
     let mut units = [0; 2];
     let &mut [unit] = character.encode_utf16(&mut units) else {
@@ -389,41 +507,7 @@ fn accelerator_chord(shortcut: &Shortcut) -> Option<(VirtualKey, VirtualKeyModif
         "shortcut key {character:?} cannot be typed on the active keyboard layout"
     );
     let [virtual_key, shift_state] = scan.to_le_bytes();
-    if shift_state != 0 {
-        return None;
-    }
-    let modifiers = shortcut.modifiers;
-    let mut chord = VirtualKeyModifiers::None.0;
-    if modifiers.control() || modifiers.command() {
-        chord |= VirtualKeyModifiers::Control.0;
-    }
-    if modifiers.option() {
-        chord |= VirtualKeyModifiers::Menu.0;
-    }
-    if modifiers.shift() {
-        chord |= VirtualKeyModifiers::Shift.0;
-    }
-    Some((
-        VirtualKey(i32::from(virtual_key)),
-        VirtualKeyModifiers(chord),
-    ))
-}
-
-/// The accelerator text Hydrolysis draws for `shortcut` off macOS, shown on
-/// a row whose key arms no `KeyboardAccelerator`.
-fn hint_text(shortcut: &Shortcut) -> String {
-    let modifiers = shortcut.modifiers;
-    let key = shortcut.key.to_uppercase();
-    [
-        (modifiers.control() || modifiers.command(), "Ctrl"),
-        (modifiers.option(), "Alt"),
-        (modifiers.shift(), "Shift"),
-    ]
-    .into_iter()
-    .filter_map(|(held, name)| held.then_some(name))
-    .chain([key.as_str()])
-    .collect::<Vec<_>>()
-    .join("+")
+    (shift_state == 0).then(|| VirtualKey(i32::from(virtual_key)))
 }
 
 /// Watches `items` and runs `rebuild` for `target` on the UI thread each
@@ -523,15 +607,15 @@ fn fill_menu_bar_item(
 
 #[cfg(test)]
 mod tests {
-    use waterui_controls::menu::Shortcut;
+    use waterui_controls::menu::{NamedKey, Shortcut};
 
-    use super::{accelerator_chord, hint_text};
+    use super::accelerator_chord;
     use crate::bindings::{VirtualKey, VirtualKeyModifiers};
 
     #[test]
     fn the_command_modifier_is_control() {
         assert_eq!(
-            accelerator_chord(&Shortcut::new("q").command()),
+            accelerator_chord(&Shortcut::new('q').command()),
             Some((VirtualKey::Q, VirtualKeyModifiers::Control))
         );
     }
@@ -539,7 +623,7 @@ mod tests {
     #[test]
     fn every_modifier_maps_and_the_key_ignores_case() {
         assert_eq!(
-            accelerator_chord(&Shortcut::new("S").control().option().shift()),
+            accelerator_chord(&Shortcut::new('S').control().option().shift()),
             Some((
                 VirtualKey::S,
                 VirtualKeyModifiers(
@@ -552,34 +636,48 @@ mod tests {
     }
 
     #[test]
-    fn named_keys_arm_nothing_and_show_their_hint() {
-        for key in ["Delete", "F5"] {
-            assert_eq!(accelerator_chord(&Shortcut::new(key).command()), None);
-        }
+    fn named_keys_arm_their_virtual_key_and_show_their_hint() {
         assert_eq!(
-            hint_text(&Shortcut::new("Delete").command().shift()),
-            "Ctrl+Shift+DELETE"
+            accelerator_chord(&Shortcut::new(NamedKey::Delete).command()),
+            Some((VirtualKey(0x2E), VirtualKeyModifiers::Control))
         );
-        assert_eq!(hint_text(&Shortcut::new("F5")), "F5");
+        assert_eq!(
+            accelerator_chord(&Shortcut::new(NamedKey::F5)),
+            Some((VirtualKey(0x74), VirtualKeyModifiers::None))
+        );
+        assert_eq!(
+            Shortcut::new(NamedKey::Delete)
+                .command()
+                .shift()
+                .to_string(),
+            "Ctrl+Shift+Del"
+        );
+        assert_eq!(Shortcut::new(NamedKey::F5).to_string(), "F5");
+    }
+
+    #[test]
+    #[should_panic(expected = "has no Windows virtual key")]
+    fn named_keys_without_a_virtual_key_panic() {
+        accelerator_chord(&Shortcut::new(NamedKey::AudioVolumeUp));
     }
 
     /// `!` is Shift+1 on the US layout the CI runners use.
     #[test]
     fn shift_characters_arm_nothing_and_show_their_hint() {
-        assert_eq!(accelerator_chord(&Shortcut::new("!").command()), None);
-        assert_eq!(hint_text(&Shortcut::new("!").command()), "Ctrl+!");
+        assert_eq!(accelerator_chord(&Shortcut::new('!').command()), None);
+        assert_eq!(Shortcut::new('!').command().to_string(), "Ctrl+!");
     }
 
     #[test]
     #[should_panic(expected = "shortcut key '☃' cannot be typed on the active keyboard layout")]
     fn characters_the_layout_cannot_type_panic() {
-        accelerator_chord(&Shortcut::new("☃"));
+        accelerator_chord(&Shortcut::new('☃'));
     }
 
     /// A character needing a surrogate pair has no key to arm at all.
     #[test]
     #[should_panic(expected = "shortcut key '😀' cannot be typed")]
     fn astral_characters_panic() {
-        accelerator_chord(&Shortcut::new("😀"));
+        accelerator_chord(&Shortcut::new('😀'));
     }
 }
