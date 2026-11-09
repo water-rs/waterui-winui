@@ -3,7 +3,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use nami::{Computed, Signal, SignalExt as _, signal::IntoComputed as _};
+use nami::{Signal, SignalExt as _, signal::IntoComputed as _};
 use waterui::window::{
     ResolvedWindowBackground, UserAttention, Window as WaterUiWindow, WindowBackground, WindowIcon,
     WindowLevel, WindowState, WindowStyle, resolve_background,
@@ -33,6 +33,14 @@ pub(crate) struct OwnerWindow {
 }
 
 impl OwnerWindow {
+    /// The window `desc` declares.
+    fn of(desc: &WaterUiWindow) -> Self {
+        Self {
+            state: desc.state.clone(),
+            closable: desc.closable,
+        }
+    }
+
     /// Whether the window was declared with a close button.
     pub(crate) const fn closable(&self) -> bool {
         self.closable
@@ -54,7 +62,7 @@ impl OwnerWindow {
 fn painted_background(
     background: &nami::Binding<WindowBackground>,
     env: &Environment,
-) -> Computed<WorkingColor> {
+) -> nami::Computed<WorkingColor> {
     let without_material = background.map(|background| match background {
         WindowBackground::Material(_) => WindowBackground::Opaque,
         background => background,
@@ -87,10 +95,7 @@ pub fn open_window(
 
     // Everything the window mounts — the menu bar, context menus — sees its
     // owner, so a `MenuItem::CloseWindow` closes the window it sits in.
-    let env = &env.extending(OwnerWindow {
-        state: desc.state.clone(),
-        closable: desc.closable,
-    });
+    let env = &env.extending(OwnerWindow::of(&desc));
 
     // Content.
     let view = renderer.render_any(desc.content.build(), env);
@@ -502,10 +507,10 @@ impl NativeIcon {
     /// A 32-bit alpha icon from the straight-alpha RGBA pixels.
     fn new(icon: &WindowIcon) -> Self {
         // GDI takes BGRA rows, top to bottom.
-        let bgra: Vec<u8> = icon
-            .rgba()
-            .chunks_exact(4)
-            .flat_map(|pixel| [pixel[2], pixel[1], pixel[0], pixel[3]])
+        let (pixels, _) = icon.rgba().as_chunks::<4>();
+        let bgra: Vec<u8> = pixels
+            .iter()
+            .flat_map(|&[red, green, blue, alpha]| [blue, green, red, alpha])
             .collect();
         // The 1-bit AND mask, rows padded to 16 bits. All zero: the colour
         // bitmap's alpha channel alone decides transparency.

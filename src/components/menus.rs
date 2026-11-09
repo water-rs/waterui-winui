@@ -8,8 +8,8 @@ use std::rc::Rc;
 use nami::{Computed, Signal};
 use waterui::app::Quit;
 use waterui_controls::menu::{
-    CloseWindowChord, CommandExt, MenuItem, NamedKey, ResolvedMenu, ResolvedMenuItem,
-    ResolvedNestedMenu, Shortcut, ShortcutKey,
+    CloseWindowChord, CommandExt, MenuItem, NamedKey, ResolvedCommand, ResolvedMenu,
+    ResolvedMenuItem, ResolvedNestedMenu, Shortcut, ShortcutKey,
 };
 use waterui_core::{Environment, Native};
 use windows_core::Interface;
@@ -277,38 +277,50 @@ fn build_menu_item(
                 .cast()
                 .expect("MenuFlyoutSubItem is a MenuFlyoutItemBase")
         }
-        ResolvedMenuItem::Quit => {
-            let quit = env
-                .get::<Quit>()
-                .expect("Quit is installed before rendering")
-                .clone();
-            // The platform quit command — hydrolysis's `quit_command`
-            // spells it the same way for Windows.
-            let command = "Exit"
-                .action(move || quit.request())
-                .shortcut(Shortcut::new('q').command())
-                .resolve(env);
-            build_menu_item(&ResolvedMenuItem::Command(command), env, ui, arming)
-        }
-        ResolvedMenuItem::CloseWindow => {
-            // The row closes the window the menu is mounted in, with the
-            // application's one decided close chord — Ctrl+W where the
-            // command modifier is control — and reads disabled in a window
-            // declared without a close button, as Hydrolysis builds it.
-            let owner = env
-                .get::<OwnerWindow>()
-                .expect("a window installs its OwnerWindow before rendering its menus")
-                .clone();
-            let mut command = MenuItem::close_window_command(env, CloseWindowChord::of(env), {
-                let owner = owner.clone();
-                move || owner.close()
-            });
-            if !owner.closable() {
-                command.disabled = Computed::constant(true);
-            }
-            build_menu_item(&ResolvedMenuItem::Command(command), env, ui, arming)
-        }
+        ResolvedMenuItem::Quit => build_menu_item(
+            &ResolvedMenuItem::Command(quit_command(env)),
+            env,
+            ui,
+            arming,
+        ),
+        ResolvedMenuItem::CloseWindow => build_menu_item(
+            &ResolvedMenuItem::Command(close_window_command(env)),
+            env,
+            ui,
+            arming,
+        ),
     }
+}
+
+/// The platform quit command — hydrolysis's `quit_command` spells it the same
+/// way for Windows.
+fn quit_command(env: &Environment) -> ResolvedCommand {
+    let quit = env
+        .get::<Quit>()
+        .expect("Quit is installed before rendering")
+        .clone();
+    "Exit"
+        .action(move || quit.request())
+        .shortcut(Shortcut::new('q').command())
+        .resolve(env)
+}
+
+/// The command a declared `MenuItem::CloseWindow` stands for: it closes the
+/// window the menu is mounted in, with the application's one decided close
+/// chord — Ctrl+W where the command modifier is control — and reads disabled
+/// in a window declared without a close button, as Hydrolysis builds it.
+fn close_window_command(env: &Environment) -> ResolvedCommand {
+    let owner = env
+        .get::<OwnerWindow>()
+        .expect("a window installs its OwnerWindow before rendering its menus")
+        .clone();
+    let closable = owner.closable();
+    let mut command =
+        MenuItem::close_window_command(env, CloseWindowChord::of(env), move || owner.close());
+    if !closable {
+        command.disabled = Computed::constant(true);
+    }
+    command
 }
 
 /// Arms `shortcut` as `entry`'s `KeyboardAccelerator` under `arming`'s
