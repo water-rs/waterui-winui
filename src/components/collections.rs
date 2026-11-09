@@ -1,12 +1,13 @@
 //! Collection views: `List` and `TabsLayout`.
 #![allow(clippy::inline_always, clippy::ref_as_ptr)] // generated `implement` macro items
 
+use std::cell::RefCell;
 use std::rc::Rc;
 
 use nami::Signal;
 use waterui::component::list::ListConfig;
 use waterui_core::id::Id;
-use waterui_core::views::Views;
+use waterui_core::views::{ViewSnapshot, Views};
 use waterui_core::{Environment, Native};
 use waterui_navigation::tab::{NativeTabStyle, TabIcon, TabsLayout};
 use windows_core::{Interface, Ref, implement};
@@ -14,7 +15,7 @@ use windows_core::{Interface, Ref, implement};
 #[allow(clippy::wildcard_imports)] // the generated namespace
 use crate::bindings::*;
 use crate::component::WinUiComponent;
-use crate::executor::enqueue_on_ui_thread;
+use crate::executor::{UiThread, enqueue_on_ui_thread};
 use crate::renderer::WinUiRenderer;
 use crate::util::{framework, store_event_revoker, store_watcher_guards};
 
@@ -26,8 +27,10 @@ use crate::util::{framework, store_event_revoker, store_watcher_guards};
 /// the UI thread on eager realization.
 #[implement(IElementFactory)]
 struct RowFactory {
-    contents: waterui_core::views::SharedAnyViews<waterui::component::list::ListItem>,
+    snapshot:
+        Rc<RefCell<waterui_core::views::AnyViewsSnapshot<waterui::component::list::ListItem>>>,
     env: Environment,
+    ui: UiThread,
 }
 
 impl IElementFactory_Impl for RowFactory_Impl {
@@ -40,11 +43,11 @@ impl IElementFactory_Impl for RowFactory_Impl {
         )
         .expect("row indices are non-negative");
         let item = self
-            .contents
+            .snapshot
+            .borrow()
             .get_view(index)
             .expect("ItemsRepeater only requests indices below the items-source count");
-        let mut renderer =
-            WinUiRenderer::for_current_thread().expect("row rendering requires the UI thread");
+        let mut renderer = WinUiRenderer::new(self.ui.clone());
         Ok(renderer.render_any(item.content, &self.env))
     }
 
@@ -76,9 +79,11 @@ impl WinUiComponent for Native<ListConfig> {
         let env = env.clone();
 
         let repeater = ItemsRepeater::new().expect("ItemsRepeater::new");
+        let row_snapshot = Rc::new(RefCell::new(contents.snapshot()));
         let factory: IElementFactory = RowFactory {
-            contents: contents.clone(),
+            snapshot: row_snapshot.clone(),
             env: env.clone(),
+            ui: renderer.ui_thread().clone(),
         }
         .into();
         repeater
@@ -89,20 +94,26 @@ impl WinUiComponent for Native<ListConfig> {
             )
             .expect("ItemsRepeater::SetItemTemplate");
         repeater
-            .SetItemsSource(&index_vector(contents.len().snapshot()))
+            .SetItemsSource(&index_vector(row_snapshot.borrow().len()))
             .expect("ItemsRepeater::SetItemsSource");
 
         // Reactive refresh: a changed collection swaps the items source and
         // the repeater re-virtualizes against the new count.
-        let queue = renderer.executor().queue().clone();
+        let ui = renderer.ui_thread().clone();
         let weak = repeater
             .downgrade()
             .expect("ItemsRepeater supports weak refs");
         let mut guards = vec![contents.watch(.., move |ctx, _change| {
-            let count = ctx.value().to_vec().len();
+            let snapshot = ctx.value().clone();
             let weak = weak.clone();
-            let queue = queue.clone();
-            enqueue_on_ui_thread(&queue, move || {
+            let ui = ui.clone();
+            let row_snapshot = row_snapshot.clone();
+            ui.enqueue(move || {
+                // The row snapshot and the item count swap together on the
+                // dispatcher: a layout pass between the two would index past
+                // the end of one of them.
+                *row_snapshot.borrow_mut() = snapshot;
+                let count = row_snapshot.borrow().len();
                 if let Some(repeater) = weak.upgrade() {
                     repeater
                         .SetItemsSource(&index_vector(count))
@@ -334,15 +345,15 @@ fn render_tab_view(
     let element = framework(&tab_view.cast().expect("UIElement"));
     store_event_revoker(&element, revoker);
 
-    let queue = renderer.executor().queue().clone();
+    let ui = renderer.ui_thread().clone();
     let weak = tab_view.downgrade().expect("weak ref");
     guards.push(layout.selection.watch(move |ctx| {
         let value = ctx.into_value();
         let weak = weak.clone();
-        let queue = queue.clone();
+        let ui = ui.clone();
         let ids = ids.clone();
         let items = items.clone();
-        enqueue_on_ui_thread(&queue, move || {
+        ui.enqueue(move || {
             if let Some(tab_view) = weak.upgrade()
                 && let Some(index) = ids.iter().position(|id| *id == value)
             {
@@ -466,15 +477,15 @@ fn render_sidebar_tabs(
     let element = framework(&nav.cast().expect("UIElement"));
     store_event_revoker(&element, revoker);
 
-    let queue = renderer.executor().queue().clone();
+    let ui = renderer.ui_thread().clone();
     let weak = nav.downgrade().expect("weak ref");
     guards.push(layout.selection.watch(move |ctx| {
         let value = ctx.into_value();
         let weak = weak.clone();
-        let queue = queue.clone();
+        let ui = ui.clone();
         let ids = ids.clone();
         let show = show.clone();
-        enqueue_on_ui_thread(&queue, move || {
+        ui.enqueue(move || {
             if let Some(nav) = weak.upgrade()
                 && let Some(index) = ids.iter().position(|id| *id == value)
             {

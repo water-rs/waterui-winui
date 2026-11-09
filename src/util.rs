@@ -5,9 +5,9 @@ use std::cell::RefCell;
 
 use nami::Signal;
 use nami::watcher::{BoxWatcherGuard, Context};
-use waterui_core::views::Views;
+use waterui_core::views::{ViewSnapshot, Views};
 use waterui_core::{AnyView, Environment, IgnorableMetadata, Metadata};
-use waterui_graphics::color::ResolvedColor;
+use waterui_graphics::color::{WorkingColor, working};
 use waterui_layout::StretchAxis;
 use windows_core::{AsImpl, IInspectable, Interface, implement};
 
@@ -149,27 +149,29 @@ pub fn framework(element: &UIElement) -> FrameworkElement {
         .expect("WaterUI WinUI elements are always FrameworkElements")
 }
 
-/// Converts a resolved `WaterUI` color to a `WinUI` `Color`.
+/// Converts a `WaterUI` working-space color to a `WinUI` `Color`.
 #[must_use]
 #[allow(
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss,
-    reason = "channels are clamped to the target range before the cast"
+    reason = "channels are clamped to the target range and rounded before the cast"
 )]
-pub fn resolved_color_to_winui(color: &ResolvedColor) -> Color {
-    let srgb = color.to_srgb_with_headroom();
+pub fn working_color_to_winui(color: &WorkingColor) -> Color {
+    let srgb = working::to_srgb(*color);
+    // Round, not truncate: `as u8` floors, and a ColorPicker round-tripping
+    // 0.5 through both directions would drift a step darker each cycle.
     Color {
-        a: (color.opacity.clamp(0.0, 1.0) * 255.0) as u8,
-        r: (srgb.red.clamp(0.0, 1.0) * 255.0) as u8,
-        g: (srgb.green.clamp(0.0, 1.0) * 255.0) as u8,
-        b: (srgb.blue.clamp(0.0, 1.0) * 255.0) as u8,
+        a: (color.components[3].clamp(0.0, 1.0) * 255.0).round() as u8,
+        r: (srgb.red.clamp(0.0, 1.0) * 255.0).round() as u8,
+        g: (srgb.green.clamp(0.0, 1.0) * 255.0).round() as u8,
+        b: (srgb.blue.clamp(0.0, 1.0) * 255.0).round() as u8,
     }
 }
 
-/// Builds a `SolidColorBrush` from a resolved color.
-pub fn solid_brush(color: &ResolvedColor) -> windows_core::Result<SolidColorBrush> {
+/// Builds a `SolidColorBrush` from a working-space color.
+pub fn solid_brush(color: &WorkingColor) -> windows_core::Result<SolidColorBrush> {
     let brush = SolidColorBrush::new()?;
-    brush.SetColor(resolved_color_to_winui(color))?;
+    brush.SetColor(working_color_to_winui(color))?;
     Ok(brush)
 }
 
@@ -245,8 +247,6 @@ fn passthrough_content(view: &AnyView) -> Option<&AnyView> {
         NavigationTransitionSource,
         NavigationTransitionDestination
     );
-    #[cfg(feature = "gpu")]
-    passthrough_metadata_content!(waterui_graphics::AppliedFilter);
     passthrough_ignorable_metadata_content!(
         MaterialBackground,
         AccessibilityLabel,
@@ -256,6 +256,13 @@ fn passthrough_content(view: &AnyView) -> Option<&AnyView> {
         AccessibilityState,
         AccessibilityStateSignal
     );
+
+    // `FilteredView` is a view in its own right, not a `Metadata` wrapper,
+    // but its stretch answer still comes from the filtered content.
+    #[cfg(feature = "gpu")]
+    if let Some(filtered) = view.downcast_ref::<waterui_graphics::FilteredView>() {
+        return Some(&filtered.content);
+    }
 
     None
 }
@@ -292,7 +299,13 @@ pub fn render_subviews(
 /// Used by containers that need all children up-front (`FixedContainer`).
 /// Lazy collections get their own rendering path.
 pub fn materialize_views<V: Views>(views: &V) -> Vec<V::View> {
-    (0..views.len().snapshot())
-        .filter_map(|index| views.get_view(index))
+    let snapshot = views.snapshot();
+    snapshot
+        .range()
+        .map(|index| {
+            snapshot
+                .get_view(index)
+                .expect("Views::range yields live indices")
+        })
         .collect()
 }

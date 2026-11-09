@@ -19,10 +19,11 @@ use waterui_form::picker::date::DatePickerConfig;
 use waterui_form::picker::multi_date::MultiDatePickerConfig;
 use waterui_form::secure::SecureFieldConfig;
 #[cfg(feature = "gpu")]
-use waterui_graphics::ResolvedGradient;
-use waterui_graphics::color::{Color, ResolvedColor};
+use waterui_graphics::FilteredView;
 #[cfg(feature = "gpu")]
-use waterui_graphics::gpu_surface::GpuSurface;
+use waterui_graphics::GpuContentView;
+use waterui_graphics::Gradient;
+use waterui_graphics::color::Color;
 use waterui_icon::SystemIcon;
 use waterui_layout::container::{FixedContainer, LazyContainer};
 use waterui_layout::scroll::ScrollView;
@@ -37,7 +38,7 @@ use windows_core::Interface;
 #[allow(clippy::wildcard_imports)] // the generated namespace
 use crate::bindings::*;
 use crate::component::WinUiComponent;
-use crate::executor::DispatcherQueueExecutor;
+use crate::executor::{DispatcherQueueExecutor, UiThread};
 
 /// Context passed to component handlers during dispatch.
 ///
@@ -77,6 +78,7 @@ impl RenderContext {
 pub struct WinUiRenderer {
     dispatcher: ViewDispatcher<(), RenderContext, UIElement>,
     executor: DispatcherQueueExecutor,
+    ui: UiThread,
 }
 
 impl WinUiRenderer {
@@ -88,23 +90,29 @@ impl WinUiRenderer {
     ///
     /// Returns an error when the current thread has no `DispatcherQueue`.
     pub fn for_current_thread() -> windows_core::Result<Self> {
-        Ok(Self::new(DispatcherQueueExecutor::for_current_thread()?))
+        Ok(Self::new(UiThread::for_current_thread()?))
     }
 
-    /// Creates a renderer on an explicit executor.
+    /// Creates a renderer for the UI thread `ui` belongs to.
     #[must_use]
-    pub fn new(executor: DispatcherQueueExecutor) -> Self {
+    pub fn new(ui: UiThread) -> Self {
         let mut dispatcher = ViewDispatcher::new();
         Self::register_components(&mut dispatcher);
         Self {
             dispatcher,
-            executor,
+            executor: DispatcherQueueExecutor::new(&ui),
+            ui,
         }
     }
 
     /// The executor that marshals work onto the UI thread.
     pub(crate) fn executor(&self) -> &DispatcherQueueExecutor {
         &self.executor
+    }
+
+    /// The UI-thread capability components schedule non-`Send` work through.
+    pub(crate) fn ui_thread(&self) -> &UiThread {
+        &self.ui
     }
 
     /// Renders a view to a `WinUI` element.
@@ -141,12 +149,14 @@ impl WinUiRenderer {
         Self::register_native::<ResolvedMenu>(dispatcher);
         Self::register_native::<SystemIcon>(dispatcher);
         Self::register_native::<Color>(dispatcher);
-        Self::register_native::<ResolvedColor>(dispatcher);
-        #[cfg(feature = "gpu")]
-        Self::register_native::<ResolvedGradient>(dispatcher);
+        Self::register_native::<Gradient>(dispatcher);
         Self::register_native::<ResolvedShape>(dispatcher);
         #[cfg(feature = "gpu")]
-        Self::register_native::<GpuSurface>(dispatcher);
+        Self::register_native::<GpuContentView>(dispatcher);
+        #[cfg(feature = "gpu")]
+        Self::register_with_renderer::<Native<FilteredView>>(dispatcher, |renderer, view, env| {
+            crate::gpu::render_filtered_view(renderer, view.into_inner(), env)
+        });
         Self::register_native::<NativeVideoConfig>(dispatcher);
         Self::register_native::<NativeVideoPlayerConfig>(dispatcher);
 

@@ -7,14 +7,16 @@ use nami::Signal;
 use waterui::window::{
     UserAttention, Window as WaterUiWindow, WindowIcon, WindowLevel, WindowState, WindowStyle,
 };
+use waterui_controls::menu::ResolvedMenuItem;
 use waterui_core::Environment;
 use waterui_layout::Size;
 use windows_core::Interface;
 
 #[allow(clippy::wildcard_imports)] // the generated namespace
 use crate::bindings::*;
-use crate::executor::enqueue_on_ui_thread;
+use crate::executor::{UiThread, enqueue_on_ui_thread};
 use crate::renderer::WinUiRenderer;
+use crate::session_end::SessionEnd;
 use crate::util::{
     framework, solid_brush, store_event_revoker, store_watcher_guards, subscribe_then_get,
 };
@@ -22,17 +24,22 @@ use crate::util::{
 /// Opens one `WinUI` `Window` for a `WaterUI` window description and keeps its
 /// reactive state (title, open state, background) synchronized.
 ///
-/// The returned window owns every watcher and event subscription through the
-/// root element's attachment bag; keep it alive for the window's lifetime.
+/// The window owns every watcher and event subscription through the root
+/// element's attachment bag; the bag dies when the window's `Closed` handler
+/// drops the window.
 pub fn open_window(
     desc: WaterUiWindow,
     env: &Environment,
     renderer: &mut WinUiRenderer,
-) -> windows_core::Result<Window> {
+    session_end: &SessionEnd,
+    menu_bar: &nami::Computed<Vec<ResolvedMenuItem>>,
+) -> windows_core::Result<()> {
     let window = Window::new()?;
+    let ui = renderer.ui_thread().clone();
 
     // Content.
-    let content = renderer.render_any(desc.content.build(), env);
+    let view = renderer.render_any(desc.content.build(), env);
+    let content = window_root(&view, menu_bar, env, &ui)?;
     window.SetContent(&content)?;
     crate::theme::attach(&framework(&content), env)?;
 
@@ -48,17 +55,19 @@ pub fn open_window(
     // of the colour.
     {
         let resolved = waterui::window::resolve_background(&desc.background, env);
-        let root = content.clone();
+        let weak = content.downgrade().expect("UIElement weak ref");
         let queue = window.DispatcherQueue()?;
         let (initial, guard) = subscribe_then_get(&resolved, move |ctx| {
             let color = ctx.into_value();
-            let root = root.clone();
+            let weak = weak.clone();
             let queue = queue.clone();
             enqueue_on_ui_thread(&queue, move || {
-                root.cast::<Panel>()
-                    .expect("window content is a Panel")
-                    .SetBackground(&solid_brush(&color).expect("SolidColorBrush"))
-                    .expect("Panel::SetBackground");
+                if let Some(root) = weak.upgrade() {
+                    root.cast::<Panel>()
+                        .expect("window content is a Panel")
+                        .SetBackground(&solid_brush(&color).expect("SolidColorBrush"))
+                        .expect("Panel::SetBackground");
+                }
             });
         });
         root_cast_panel(&content)?
@@ -86,13 +95,13 @@ pub fn open_window(
 
     // Reactive title.
     {
-        let queue = window.DispatcherQueue()?;
+        let ui = ui.clone();
         let weak = window.downgrade().expect("Window weak ref");
         let (initial, guard) = subscribe_then_get(&desc.title, move |ctx| {
             let title = ctx.into_value();
             let weak = weak.clone();
-            let queue = queue.clone();
-            enqueue_on_ui_thread(&queue, move || {
+            let ui = ui.clone();
+            ui.enqueue(move || {
                 if let Some(window) = weak.upgrade() {
                     window.SetTitle(title.as_ref()).expect("Window::SetTitle");
                 }
@@ -113,30 +122,55 @@ pub fn open_window(
     }));
     install_hwnd_gate(&window, &content, hwnd_state.clone())?;
 
-    // Close request (user presses X) must mirror into `state`.
+    // Logoff and shutdown reach every top-level window as
+    // `WM_QUERYENDSESSION`/`WM_ENDSESSION`; the subclass reports them to the
+    // termination machine.
+    let session_end = session_end.clone();
+    hwnd_state
+        .borrow_mut()
+        .when_created(move |hwnd| session_end.install(hwnd));
+
+    // Close request (user presses X) must mirror into `state`. Under
+    // `LastWindowPolicy::Quit` the tracked count reaching zero files a
+    // `Required` termination — the `winit` runner's
+    // `exit_if_last_window_closed` idiom.
+    //
+    // The cell below is the window's only Rust-side owner, kept by this
+    // handler: `Closed` fires once the native window is gone, so taking
+    // the window out of it releases the tree. The drop itself is deferred
+    // to the dispatcher — the handler's own subscription lives in that
+    // tree and cannot die mid-callback.
     let state = desc.state.clone();
     let closed_hwnd_state = hwnd_state.clone();
+    let termination = env.get::<crate::app::WindowTermination>().cloned();
+    let owner: Rc<RefCell<Option<Window>>> = Rc::new(RefCell::new(None));
+    let closed_owner = owner.clone();
+    let ui_for_closed = ui.clone();
     let revoker = window.Closed(move |_sender, _args| {
         closed_hwnd_state.borrow_mut().destroyed();
         state.set(WindowState::Closed);
+        if let Some(termination) = &termination {
+            termination.closed();
+        }
+        let closed = closed_owner.borrow_mut().take();
+        ui_for_closed.enqueue(move || drop(closed));
     })?;
     store_event_revoker(&framework(&content), revoker);
 
-    install_state(&window, &desc.state, &content, &hwnd_state)?;
+    install_state(&window, &desc.state, &content, &hwnd_state, &ui);
 
     install_state_writeback(&window, &desc.state, &desc.level, &content)?;
-    install_level(&window, &desc.level, &content, &hwnd_state);
-    install_attention(&window, &desc.attention, &content, &hwnd_state)?;
-    install_icon(&window, &desc.icon, &content, &hwnd_state)?;
-    install_resize_increments(
-        &window,
-        desc.resize_increments.as_ref(),
-        &content,
-        &hwnd_state,
-    );
+    install_level(&window, &desc.level, &content, &hwnd_state, &ui);
+    install_attention(&window, &desc.attention, &content, &hwnd_state, &ui)?;
+    install_icon(&desc.icon, &content, &hwnd_state, &ui);
+    install_resize_increments(desc.resize_increments.as_ref(), &content, &hwnd_state, &ui);
 
+    // The `Closed` handler holds the window from here on: nothing else
+    // keeps a `Window` reference, so `Closed` emptying the cell ends the
+    // whole tree — watchers, revokers and the menu-bar rebuild included.
+    *owner.borrow_mut() = Some(window.clone());
     window.Activate()?;
-    Ok(window)
+    Ok(())
 }
 
 /// Applies programmatic changes of the window's open state while the native
@@ -147,16 +181,17 @@ fn install_state(
     state: &nami::Binding<WindowState>,
     content: &UIElement,
     hwnd_state: &SharedHwnd,
-) -> windows_core::Result<()> {
-    let queue = window.DispatcherQueue()?;
+    ui: &UiThread,
+) {
+    let ui = ui.clone();
     let weak = window.downgrade().expect("Window weak ref");
     let hwnd_watcher = hwnd_state.clone();
     let (_, guard) = subscribe_then_get(state, move |ctx| {
         let new_state = ctx.into_value();
         let weak = weak.clone();
-        let queue = queue.clone();
+        let ui = ui.clone();
         let hwnd_watcher = hwnd_watcher.clone();
-        enqueue_on_ui_thread(&queue, move || {
+        ui.enqueue(move || {
             if let Some(window) = weak.upgrade()
                 && hwnd_watcher.borrow().hwnd.is_some()
             {
@@ -175,7 +210,6 @@ fn install_state(
             }
         }
     });
-    Ok(())
 }
 
 /// Feeds the live `HWND` into `hwnd_state` once activation creates the
@@ -267,16 +301,17 @@ fn install_level(
     level: &nami::Computed<WindowLevel>,
     content: &UIElement,
     hwnd_state: &SharedHwnd,
+    ui: &UiThread,
 ) {
-    let queue = window.DispatcherQueue().expect("Window::DispatcherQueue");
+    let ui = ui.clone();
     let weak = window.downgrade().expect("Window weak ref");
     let hwnd_watcher = hwnd_state.clone();
     let (_, guard) = subscribe_then_get(level, move |ctx| {
         let level = ctx.into_value();
         let weak = weak.clone();
-        let queue = queue.clone();
+        let ui = ui.clone();
         let hwnd_watcher = hwnd_watcher.clone();
-        enqueue_on_ui_thread(&queue, move || {
+        ui.enqueue(move || {
             if let Some(window) = weak.upgrade()
                 && hwnd_watcher.borrow().hwnd.is_some()
                 && let Ok(overlapped) = app_window(&window)
@@ -308,16 +343,17 @@ fn install_attention(
     attention: &nami::Binding<Option<UserAttention>>,
     content: &UIElement,
     hwnd_state: &SharedHwnd,
+    ui: &UiThread,
 ) -> windows_core::Result<()> {
-    let queue = window.DispatcherQueue()?;
+    let ui = ui.clone();
     let weak = window.downgrade().expect("Window weak ref");
     let hwnd_watcher = hwnd_state.clone();
     let (_, guard) = subscribe_then_get(attention, move |ctx| {
         let request = ctx.into_value();
         let weak = weak.clone();
-        let queue = queue.clone();
+        let ui = ui.clone();
         let hwnd_watcher = hwnd_watcher.clone();
-        enqueue_on_ui_thread(&queue, move || {
+        ui.enqueue(move || {
             if let Some(window) = weak.upgrade()
                 && hwnd_watcher.borrow().hwnd.is_some()
             {
@@ -350,24 +386,27 @@ fn install_attention(
 /// its class icon — the application's — again, which `AppWindow.SetIcon` has
 /// no documented form for.
 fn install_icon(
-    window: &Window,
     icon: &nami::Binding<Option<WindowIcon>>,
     content: &UIElement,
     hwnd_state: &SharedHwnd,
-) -> windows_core::Result<()> {
+    ui: &UiThread,
+) {
     // The icon the window currently shows; the window does not own it, so it
     // is destroyed once a replacement is in place.
     let shown: Rc<RefCell<Option<NativeIcon>>> = Rc::default();
-    let queue = window.DispatcherQueue()?;
+    let ui = ui.clone();
     let hwnd_watcher = hwnd_state.clone();
     let watcher_shown = shown.clone();
     let (_, guard) = subscribe_then_get(icon, move |ctx| {
         let icon = ctx.into_value();
-        let queue = queue.clone();
+        let ui = ui.clone();
         let hwnd_watcher = hwnd_watcher.clone();
         let shown = watcher_shown.clone();
-        enqueue_on_ui_thread(&queue, move || {
-            if let Some(hwnd) = hwnd_watcher.borrow().hwnd {
+        ui.enqueue(move || {
+            // `WM_SETICON` is synchronous and re-enters the window's
+            // subclass, so the shared cell is not borrowed across it.
+            let hwnd = hwnd_watcher.borrow().hwnd;
+            if let Some(hwnd) = hwnd {
                 apply_icon(hwnd, icon.as_ref(), &shown);
             }
         });
@@ -380,7 +419,6 @@ fn install_icon(
             apply_icon(hwnd, Some(&icon), &shown);
         }
     });
-    Ok(())
 }
 
 /// Puts `icon` — or, for `None`, the class icon — on the window's caption
@@ -447,6 +485,34 @@ impl Drop for NativeIcon {
             let _ = DestroyIcon(self.0);
         }
     }
+}
+
+/// Stacks the app's menu bar over the window's content. The `Grid` is the
+/// window's root, so the background and the window-lifetime attachments
+/// live on it.
+fn window_root(
+    view: &UIElement,
+    menu_bar: &nami::Computed<Vec<ResolvedMenuItem>>,
+    env: &Environment,
+    ui: &UiThread,
+) -> windows_core::Result<UIElement> {
+    let root = Grid::new()?;
+    let rows = crate::util::vector::<_, RowDefinition>(&root.RowDefinitions()?);
+    for unit in [GridUnitType::Auto, GridUnitType::Star] {
+        let row = RowDefinition::new()?;
+        row.SetHeight(GridLength {
+            value: 1.0,
+            grid_unit_type: unit,
+        })?;
+        rows.Append(&row)?;
+    }
+    let bar = crate::components::menus::build_menu_bar(menu_bar, env, ui);
+    Grid::SetRow(&framework(&bar), 0)?;
+    Grid::SetRow(&framework(view), 1)?;
+    let children = crate::util::children(&root);
+    children.Append(&bar)?;
+    children.Append(view)?;
+    root.cast()
 }
 
 /// The content root must be a `Panel` to carry a background brush; when it
@@ -617,10 +683,10 @@ const RESIZE_INCREMENT_SUBCLASS_ID: usize = 0x5755_5249; // "WURI"
 /// multiples of the increment, measured on the client area in the window's
 /// own DPI.
 fn install_resize_increments(
-    window: &Window,
     increments: Option<&nami::Computed<Size>>,
     content: &UIElement,
     hwnd_state: &SharedHwnd,
+    ui: &UiThread,
 ) {
     let Some(increments) = increments else {
         return;
@@ -646,13 +712,13 @@ fn install_resize_increments(
             panic!("SetWindowSubclass failed");
         }
     });
-    let queue = window.DispatcherQueue().expect("Window::DispatcherQueue");
+    let ui = ui.clone();
     let hwnd_watcher = hwnd_state.clone();
     let (_, guard) = subscribe_then_get(increments, move |ctx| {
         let size = ctx.into_value();
-        let queue = queue.clone();
+        let ui = ui.clone();
         let hwnd_watcher = hwnd_watcher.clone();
-        enqueue_on_ui_thread(&queue, move || {
+        ui.enqueue(move || {
             // SAFETY: `shared` is owned by the subclass until WM_NCDESTROY
             // frees it on this same UI thread — while the window is not yet
             // destroyed the box is either awaiting the subclass or live in

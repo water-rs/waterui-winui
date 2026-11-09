@@ -7,7 +7,6 @@ use windows_core::Interface;
 #[allow(clippy::wildcard_imports)] // the generated namespace
 use crate::bindings::*;
 use crate::component::WinUiComponent;
-use crate::executor::enqueue_on_ui_thread;
 use crate::renderer::WinUiRenderer;
 
 impl WinUiComponent for Native<Dynamic> {
@@ -17,7 +16,7 @@ impl WinUiComponent for Native<Dynamic> {
         let dynamic = self.into_inner();
         let host = Border::new().expect("Border::new");
 
-        let queue = renderer.executor().queue().clone();
+        let ui = renderer.ui_thread().clone();
         let env = env.clone();
         let weak = host.downgrade().expect("Border supports weak references");
 
@@ -25,13 +24,12 @@ impl WinUiComponent for Native<Dynamic> {
             let view = ctx.into_value();
             let env = env.clone();
             let weak = weak.clone();
-            let queue = queue.clone();
-            enqueue_on_ui_thread(&queue, move || {
+            let render_ui = ui.clone();
+            ui.enqueue(move || {
                 let Some(host) = weak.upgrade() else {
                     return;
                 };
-                let mut renderer =
-                    WinUiRenderer::for_current_thread().expect("renderer on the UI thread");
+                let mut renderer = WinUiRenderer::new(render_ui);
                 let child = renderer.render_any(view, &env);
                 host.SetChild(&child).expect("Border::SetChild");
             });

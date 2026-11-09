@@ -81,9 +81,12 @@ jobs:
           # invocation inside the checkout. `RUSTUP_TOOLCHAIN` is the one
           # override that beats the file.
           echo "RUSTUP_TOOLCHAIN=$version" >> "$GITHUB_ENV"
+      # `components: rustfmt`: `build.rs` generates the WinRT bindings with
+      # windows-bindgen, which formats its output through rustfmt (#93).
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ steps.msrv.outputs.version }}
+          components: rustfmt
       - name: Install DirectX Shader Compiler
         uses: tracel-ai/github-actions/install-dxc@295f2fdbae5271f4f8ad56d634e4ff6a95daafc8
       # Proof in the log that the floor is what compiled, so a later change to

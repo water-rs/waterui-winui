@@ -49,8 +49,8 @@ use crate::bindings::*;
 use crate::executor::DispatcherQueueExecutor;
 use crate::renderer::{RenderContext, WinUiRenderer};
 use crate::util::{
-    framework, resolved_color_to_winui, solid_brush, store_event_revoker, store_retained,
-    store_watcher_guard, subscribe_then_get,
+    framework, solid_brush, store_event_revoker, store_retained, store_watcher_guard,
+    subscribe_then_get, working_color_to_winui,
 };
 
 /// Registers every metadata handler the `WinUI` backend supports.
@@ -234,10 +234,10 @@ fn apply_drop_shadow(element: &UIElement, shadow: &Shadow, env: &Environment) {
     let (initial, guard) = subscribe_then_get(&shadow.color.resolve(env), move |ctx| {
         let resolved = ctx.into_value();
         watched
-            .SetColor(resolved_color_to_winui(&resolved))
+            .SetColor(working_color_to_winui(&resolved))
             .expect("DropShadow::SetColor");
     });
-    drop.SetColor(resolved_color_to_winui(&initial))
+    drop.SetColor(working_color_to_winui(&initial))
         .expect("DropShadow::SetColor");
     store_watcher_guard(&framework(element), guard);
 }
@@ -1028,26 +1028,48 @@ fn register_context_menu(dispatcher: &mut ViewDispatcher<(), RenderContext, UIEl
             let element = renderer.render_any(metadata.content, env);
             let fe = framework(&element);
             let flyout = MenuFlyout::new().expect("MenuFlyout::new");
-            let queue = DispatcherQueue::GetForCurrentThread()
-                .expect("DispatcherQueue::GetForCurrentThread");
+            let ui = renderer.ui_thread().clone();
+            // A `.context_menu`'s chords are live only while the menu is
+            // open (the Hydrolysis contract): the rows park their
+            // accelerators, the flyout arms them on `Opened` and clears
+            // them on `Closed`.
+            let accelerators =
+                Rc::new(crate::components::menus::ContextFlyoutAccelerators::default());
+            let arming = crate::components::menus::ShortcutArming::WhileOpen(accelerators.clone());
             crate::components::menus::rebuild_flyout(
                 &flyout,
                 &metadata.value.items.snapshot(),
                 env,
-                &queue,
+                &ui,
+                &arming,
             );
             element
                 .SetContextFlyout(&flyout)
                 .expect("UIElement::SetContextFlyout");
 
+            let flyout_base = flyout
+                .cast::<FlyoutBase>()
+                .expect("MenuFlyout is a FlyoutBase");
+            let armed = accelerators.clone();
+            let revoker = flyout_base
+                .Opened(move |_sender, _args| armed.opened())
+                .expect("FlyoutBase::Opened");
+            store_event_revoker(&fe, revoker);
+            let revoker = flyout_base
+                .Closed(move |_sender, _args| accelerators.closed())
+                .expect("FlyoutBase::Closed");
+            store_event_revoker(&fe, revoker);
+
             let weak = flyout.downgrade().expect("weak MenuFlyout");
             let (_initial, guard) = subscribe_then_get(&metadata.value.items, {
                 let env = env.clone();
-                let queue = queue.clone();
+                let ui = ui.clone();
                 move |ctx| {
                     let items = ctx.into_value();
                     if let Some(flyout) = weak.upgrade() {
-                        crate::components::menus::rebuild_flyout(&flyout, &items, &env, &queue);
+                        crate::components::menus::rebuild_flyout(
+                            &flyout, &items, &env, &ui, &arming,
+                        );
                     }
                 }
             });
@@ -1625,9 +1647,4 @@ fn register_passthroughs(dispatcher: &mut ViewDispatcher<(), RenderContext, UIEl
     WinUiRenderer::register_passthrough_metadata::<NavigationTransitionSource>(dispatcher);
     WinUiRenderer::register_passthrough_metadata::<NavigationTransitionDestination>(dispatcher);
     register_material_background(dispatcher);
-    #[cfg(feature = "gpu")]
-    WinUiRenderer::register_with_renderer::<Metadata<waterui_graphics::AppliedFilter>>(
-        dispatcher,
-        crate::gpu::render_applied_filter,
-    );
 }

@@ -12,6 +12,7 @@ rust-version.workspace = true
 workspace = true
 
 [dependencies]
+sha2 = "0.10"
 ureq = "3"
 zip = { version = "4", default-features = false, features = ["deflate"] }
 windows-bindgen = "0.100"

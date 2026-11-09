@@ -18,8 +18,8 @@ use crate::component::WinUiComponent;
 use crate::executor::enqueue_on_ui_thread;
 use crate::renderer::WinUiRenderer;
 use crate::util::{
-    framework, resolved_color_to_winui, store_event_revoker, store_watcher_guards,
-    subscribe_then_get,
+    framework, store_event_revoker, store_watcher_guards, subscribe_then_get,
+    working_color_to_winui,
 };
 
 /// Ticks between the `WinRT` epoch (1601-01-01 UTC) and the Unix epoch.
@@ -196,7 +196,7 @@ fn render_combo_box(
     );
 
     // binding -> native
-    let queue = renderer.executor().queue().clone();
+    let ui = renderer.ui_thread().clone();
     let weak = combo.downgrade().expect("ComboBox supports weak refs");
     let ids_for_watch = ids.clone();
     let selection_guard = {
@@ -204,9 +204,9 @@ fn render_combo_box(
         subscribe_then_get(&binding, move |ctx| {
             let value = ctx.into_value();
             let weak = weak.clone();
-            let queue = queue.clone();
+            let ui = ui.clone();
             let ids = ids_for_watch.clone();
-            enqueue_on_ui_thread(&queue, move || {
+            ui.enqueue(move || {
                 if let Some(combo) = weak.upgrade() {
                     let selector = combo.cast::<Selector>().expect("ComboBox is a Selector");
                     let index = ids
@@ -225,16 +225,16 @@ fn render_combo_box(
 
     // items signal -> native model
     let weak = combo.downgrade().expect("ComboBox supports weak refs");
-    let queue = renderer.executor().queue().clone();
+    let ui = renderer.ui_thread().clone();
     let env_for_items = env.clone();
     let ids_for_items = ids.clone();
     let items_guard = config.items.watch(move |ctx| {
         let list = ctx.into_value();
         let weak = weak.clone();
-        let queue = queue.clone();
+        let ui = ui.clone();
         let env = env_for_items.clone();
         let ids = ids_for_items.clone();
-        enqueue_on_ui_thread(&queue, move || {
+        ui.enqueue(move || {
             if let Some(combo) = weak.upgrade() {
                 let items_collection = combo
                     .cast::<ItemsControl>()
@@ -325,15 +325,15 @@ fn render_radio_buttons(
         .expect("RadioButtons::SelectionChanged");
     store_event_revoker(&framework(&radio.cast().expect("UIElement")), revoker);
 
-    let queue = renderer.executor().queue().clone();
+    let ui = renderer.ui_thread().clone();
     let weak = radio.downgrade().expect("RadioButtons supports weak refs");
     let ids_for_watch = ids.clone();
     let selection_guard = subscribe_then_get(&config.selection, move |ctx| {
         let value = ctx.into_value();
         let weak = weak.clone();
-        let queue = queue.clone();
+        let ui = ui.clone();
         let ids = ids_for_watch.clone();
-        enqueue_on_ui_thread(&queue, move || {
+        ui.enqueue(move || {
             if let Some(radio) = weak.upgrade() {
                 let index = ids
                     .borrow()
@@ -420,15 +420,15 @@ fn render_selector_bar(
         .expect("SelectorBar::SelectionChanged");
     store_event_revoker(&framework(&bar.cast().expect("UIElement")), revoker);
 
-    let queue = renderer.executor().queue().clone();
+    let ui = renderer.ui_thread().clone();
     let weak = bar.downgrade().expect("SelectorBar supports weak refs");
     let ids_for_watch = ids.clone();
     let selection_guard = subscribe_then_get(&config.selection, move |ctx| {
         let value = ctx.into_value();
         let weak = weak.clone();
-        let queue = queue.clone();
+        let ui = ui.clone();
         let ids = ids_for_watch.clone();
-        enqueue_on_ui_thread(&queue, move || {
+        ui.enqueue(move || {
             if let Some(bar) = weak.upgrade()
                 && let Some(index) = ids.borrow().iter().position(|id| *id == value)
             {
@@ -718,7 +718,7 @@ impl WinUiComponent for Native<ColorPickerConfig> {
             .expect("ColorPicker::SetIsAlphaEnabled");
         let initial = config.value.snapshot().resolve(env).snapshot();
         picker
-            .SetColor(resolved_color_to_winui(&initial))
+            .SetColor(working_color_to_winui(&initial))
             .expect("ColorPicker::SetColor");
 
         let flyout = Flyout::new().expect("Flyout::new");
@@ -789,7 +789,7 @@ impl WinUiComponent for Native<ColorPickerConfig> {
                 let weak_swatch = weak_swatch.clone();
                 let queue = queue.clone();
                 enqueue_on_ui_thread(&queue, move || {
-                    let winui = resolved_color_to_winui(&color);
+                    let winui = working_color_to_winui(&color);
                     if let Some(picker) = weak_picker.upgrade()
                         && picker.Color().expect("Color") != winui
                     {

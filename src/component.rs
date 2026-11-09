@@ -208,3 +208,63 @@ impl IFrameworkElementOverrides_Impl for LayoutPanel_Impl {
 const fn finite_or_none(value: f32) -> Option<f32> {
     if value.is_finite() { Some(value) } else { None }
 }
+
+/// A `Panel` that forwards XAML's measure offer to GPU content.
+#[cfg(feature = "gpu")]
+#[implement(IFrameworkElementOverrides)]
+pub(crate) struct MeasuredHost {
+    child: UIElement,
+    measure: Box<dyn Fn(ProposalSize) -> ViewDimensions>,
+}
+
+#[cfg(feature = "gpu")]
+impl IFrameworkElementOverrides_Impl for MeasuredHost_Impl {
+    fn MeasureOverride(&self, available_size: &Size) -> windows_core::Result<Size> {
+        self.child.Measure(*available_size)?;
+        let proposal = ProposalSize::new(
+            finite_or_none(available_size.width),
+            finite_or_none(available_size.height),
+        );
+        let measured = (self.measure)(proposal);
+        Ok(Size {
+            width: measured.size.width,
+            height: measured.size.height,
+        })
+    }
+
+    fn ArrangeOverride(&self, final_size: &Size) -> windows_core::Result<Size> {
+        self.child.Arrange(Rect {
+            x: 0.0,
+            y: 0.0,
+            width: final_size.width,
+            height: final_size.height,
+        })?;
+        Ok(*final_size)
+    }
+
+    fn OnApplyTemplate(&self) -> windows_core::Result<()> {
+        Ok(())
+    }
+
+    fn GoToElementStateCore(
+        &self,
+        _state_name: &windows_core::HSTRING,
+        _use_transitions: bool,
+    ) -> windows_core::Result<bool> {
+        Ok(false)
+    }
+}
+
+/// Wraps `child` so `WinUI` uses `measure` for its desired dimensions.
+#[cfg(feature = "gpu")]
+pub(crate) fn measured_host(
+    child: &UIElement,
+    measure: impl Fn(ProposalSize) -> ViewDimensions + 'static,
+) -> windows_core::Result<Panel> {
+    let panel = Panel::compose(MeasuredHost {
+        child: child.clone(),
+        measure: Box::new(measure),
+    })?;
+    crate::util::children(&panel).Append(child)?;
+    Ok(panel)
+}

@@ -1,3 +1,7 @@
 /target
 **/*.rs.bk
 .DS_Store
+# Generated at build time into OUT_DIR (#93); the CLI keeps these as a local
+# regen cache for diffing and `query`.
+/winmd/
+/src/bindings.rs

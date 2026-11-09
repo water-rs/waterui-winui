@@ -1,19 +1,221 @@
 //! `App::run` entry point: bootstrap, UI thread, windows.
 
-use std::cell::RefCell;
+use std::cell::{Cell, OnceCell, RefCell};
 use std::rc::Rc;
 
 use executor_core::{LocalExecutor, Task};
-use waterui::app::{App, AppParts, LastWindowPolicy};
+use nami::Computed;
+use waterui::app::{
+    App, AppParts, LastWindowPolicy, Termination, TerminationHandle, TerminationHost,
+    TerminationKind,
+};
+use waterui::window::{Window as WaterUiWindow, WindowManager};
+use waterui_controls::menu::{Menu, ResolvedMenuItem, resolve_menu_bar_items};
+use waterui_core::Environment;
 use windows_core::Interface;
 
 use crate::app_shim::{create_application, install_xaml_controls_resources};
 #[allow(clippy::wildcard_imports)] // the generated namespace
 use crate::bindings::*;
 use crate::bootstrap::{bootstrap_runtime, initialize_ui_thread};
-use crate::executor::{DeferredDispatcherExecutor, DispatcherQueueExecutor};
+use crate::executor::{DeferredDispatcherExecutor, DispatcherQueueExecutor, UiThread};
 use crate::renderer::WinUiRenderer;
+use crate::session_end::{SessionEnd, SessionEndState, install_console_interrupt};
 use crate::window::open_window;
+
+/// Counts open windows so the last `Closed` can file a `Required`
+/// termination — the `winit` runner's `exit_if_last_window_closed` idiom.
+/// Every window clones this out of the environment, so the count is shared
+/// behind an `Rc`. Installed only under [`LastWindowPolicy::Quit`].
+#[derive(Clone)]
+pub(crate) struct WindowTermination {
+    open: Rc<Cell<usize>>,
+    handle: TerminationHandle,
+}
+
+impl WindowTermination {
+    /// One more window open: a window shown after launch counts like a
+    /// launch window.
+    pub(crate) fn opened(&self) {
+        self.open.set(self.open.get() + 1);
+    }
+
+    /// One window closer to empty: the last `Closed` ends the application.
+    pub(crate) fn closed(&self) {
+        if self.open.get() == 1 {
+            self.handle.request(TerminationKind::Required);
+        } else {
+            self.open.set(self.open.get() - 1);
+        }
+    }
+}
+
+/// Answers the `Termination` machine on behalf of `WinUI`: `terminate`
+/// releases the session-end paths waiting on it and exits the
+/// `Application` (the dispatcher loop then unwinds); `refuse` lifts the
+/// `ShutdownBlockReason`s a `WM_QUERYENDSESSION` veto created.
+struct WinUiTerminationHost {
+    application: Application,
+    session_end: Rc<SessionEndState>,
+}
+
+impl TerminationHost for WinUiTerminationHost {
+    fn terminate(&self) {
+        self.session_end.terminated();
+        self.application.Exit().expect("Application::Exit");
+    }
+
+    fn refuse(&self) {
+        self.session_end.destroy_block_reasons();
+    }
+}
+
+/// Wires the app's `Termination` machine and the dispatcher shutdown for
+/// the run.
+///
+/// `start` installs the `Quit` service into `env` and hands back the
+/// [`TerminationHandle`] every quit path reports through. `Quit` only
+/// holds a `Weak` into the machine, so the runner keeps one handle in
+/// `handle_slot` for the life of `Application::Start` — otherwise
+/// `Quit::request` (the Exit item, a `|quit: Quit|` handler) would panic
+/// once startup's copy dropped. [`WindowTermination`] carries a second
+/// clone under [`LastWindowPolicy::Quit`] to count window closes.
+///
+/// `WinUI`'s own `OnLastWindowClose` would end the dispatcher without
+/// running `on_terminate`, so shutdown is always explicit and the last
+/// window's `Closed` files through the machine instead.
+///
+/// Ctrl+C, Ctrl+Break and closing the console file a `Required` request
+/// through [`install_console_interrupt`], and the returned [`SessionEnd`]
+/// subclasses every application window for logoff and shutdown.
+///
+/// Returns `None` when the run should end immediately: a windowless app
+/// under `Quit` files its `Required` request here and opens nothing.
+fn wire_termination(
+    env: &mut Environment,
+    termination: Termination,
+    application: &Application,
+    executor: &DispatcherQueueExecutor,
+    window_count: usize,
+    last_window: LastWindowPolicy,
+    handle_slot: &Rc<OnceCell<TerminationHandle>>,
+) -> Option<SessionEnd> {
+    application
+        .cast::<IApplication3>()
+        .expect("Application is an IApplication3")
+        .SetDispatcherShutdownMode(DispatcherShutdownMode::OnExplicitShutdown)
+        .expect("Application::SetDispatcherShutdownMode");
+
+    let session_end = Rc::new(SessionEndState::default());
+    let handle = termination.start(
+        env,
+        WinUiTerminationHost {
+            application: application.clone(),
+            session_end: Rc::clone(&session_end),
+        },
+    );
+    // The slot clone owns the machine for the whole run under every
+    // policy — under `StayResident` no `WindowTermination` exists to keep
+    // `Quit`'s target alive — and drops when `run_app` unwinds after
+    // `Application::Start` returns.
+    handle_slot
+        .set(handle.clone())
+        .map_err(|_| ())
+        .expect("wire_termination ran twice");
+
+    if last_window == LastWindowPolicy::Quit {
+        if window_count == 0 {
+            // No window will ever close, so nothing else would end the
+            // dispatcher: an app that quits after its last window and
+            // declares none exits at launch.
+            tracing::info!("the application declares no window and quits after its last one");
+            handle.request(TerminationKind::Required);
+            return None;
+        }
+        env.insert(WindowTermination {
+            open: Rc::new(Cell::new(window_count)),
+            handle: handle.clone(),
+        });
+    }
+    install_console_interrupt(executor, handle.clone(), Rc::clone(&session_end));
+    Some(SessionEnd::new(handle, session_end))
+}
+
+/// Opens the app's windows — the launch windows and every one
+/// [`WindowManager::show`] files later — through one path, so each gets the
+/// menu bar, the session-end subclass and the termination accounting.
+struct AppWindows {
+    /// The environment carrying the `WindowManager`, and the menu bar
+    /// resolved on it; set once by [`AppWindows::install`].
+    context: OnceCell<(Environment, Computed<Vec<ResolvedMenuItem>>)>,
+    renderer: RefCell<WinUiRenderer>,
+    ui: UiThread,
+    session_end: SessionEnd,
+}
+
+impl AppWindows {
+    /// Installs the `WindowManager` into `env`, then resolves the menu bar
+    /// on the environment that carries it, so menu commands see it too.
+    fn install(
+        env: &mut Environment,
+        renderer: WinUiRenderer,
+        session_end: SessionEnd,
+        menu_bar: &Computed<Vec<Menu>>,
+    ) -> Rc<Self> {
+        let windows = Rc::new(Self {
+            context: OnceCell::new(),
+            ui: renderer.ui_thread().clone(),
+            renderer: RefCell::new(renderer),
+            session_end,
+        });
+        // The environment every window renders with holds the manager, and
+        // the manager holds the windows: both live for the whole run.
+        env.insert(WindowManager::new({
+            let windows = Rc::clone(&windows);
+            move |window| windows.show(window)
+        }));
+        let menu_bar = resolve_menu_bar_items(menu_bar, env);
+        windows
+            .context
+            .set((env.clone(), menu_bar))
+            .map_err(|_| ())
+            .expect("AppWindows::install ran twice");
+        windows
+    }
+
+    /// Opens a window; its `Closed` handler owns it through a cell and
+    /// drops the tree once the native window is gone (see
+    /// [`crate::window::open_window`]).
+    fn open(&self, desc: WaterUiWindow) {
+        let (env, menu_bar) = self
+            .context
+            .get()
+            .expect("AppWindows::install sets the context");
+        open_window(
+            desc,
+            env,
+            &mut self.renderer.borrow_mut(),
+            &self.session_end,
+            menu_bar,
+        )
+        .expect("failed to open WaterUI window");
+    }
+
+    /// `WindowManager::show`: the window counts as open at once, so the last
+    /// open window closing before it mounts does not end the run, and it
+    /// mounts from the dispatcher, outside the view code that called `show`.
+    fn show(self: &Rc<Self>, desc: WaterUiWindow) {
+        let (env, _) = self
+            .context
+            .get()
+            .expect("WindowManager::show ran before AppWindows::install finished");
+        if let Some(termination) = env.get::<WindowTermination>() {
+            termination.opened();
+        }
+        let windows = Rc::clone(self);
+        self.ui.enqueue(move || windows.open(desc));
+    }
+}
 
 /// Runs a `WaterUI` application on the `WinUI` backend.
 ///
@@ -22,11 +224,13 @@ use crate::window::open_window;
 /// the app's windows inside `OnLaunched`.
 ///
 /// The app may declare no window. Its [`LastWindowPolicy`] decides what
-/// happens once none is open: under [`LastWindowPolicy::Quit`] the
-/// application ends with its last window — `WinUI`'s own
-/// `DispatcherShutdownMode::OnLastWindowClose` — and exits at launch when it
-/// declares none; under [`LastWindowPolicy::StayResident`] the dispatcher
-/// shuts down only on an explicit exit.
+/// happens once none is open: under [`LastWindowPolicy::Quit`] the last
+/// window's `Closed` files a `Required` request through the app's
+/// `Termination` machine — `WinUI`'s own `OnLastWindowClose` shutdown is
+/// disabled because it would skip `on_terminate` — and at launch a
+/// windowless app files the same request; under
+/// [`LastWindowPolicy::StayResident`] the dispatcher also shuts down only on
+/// an explicit exit.
 ///
 /// # Errors
 ///
@@ -42,6 +246,10 @@ use crate::window::open_window;
 /// already spawn executor work (`waterui-browser-cef::install` starts a
 /// message pump task), so the dispatcher-backed local executor must exist on
 /// this thread before `make_app` runs.
+#[expect(
+    clippy::too_many_lines,
+    reason = "the run is one linear sequence — bootstrap, executor install, the Start callback, exception surface, GPU, theme, termination, then opening every window — kept flat like the other runners"
+)]
 pub fn run_app(make_app: impl FnOnce() -> App) -> windows_core::Result<()> {
     // Diagnostics land on stderr so harnesses capture them; `try_init` never
     // overrides a consumer-installed subscriber.
@@ -76,101 +284,121 @@ pub fn run_app(make_app: impl FnOnce() -> App) -> windows_core::Result<()> {
         windows,
         env,
         last_window,
+        termination,
+        menu_bar,
         ..
     } = make_app().into_parts();
     let windows = RefCell::new(Some(windows));
     let env = RefCell::new(Some(env));
+    let termination = RefCell::new(Some(termination));
+    let menu_bar = RefCell::new(Some(menu_bar));
+    // One `TerminationHandle` the startup task fills in; `Application::Start`
+    // blocks for the whole run, so this `Rc` keeps the machine alive until
+    // the message loop has already unwound.
+    let handle_slot = Rc::new(OnceCell::<TerminationHandle>::new());
 
-    Application::Start(&ApplicationInitializationCallback::new(move |_params| {
-        // The UI thread's `DispatcherQueue` now exists: bind it to the
-        // executor installed before `make_app` and replay buffered schedules.
-        deferred
-            .activate()
-            .expect("UI thread DispatcherQueue missing inside Application::Start");
-        let windows = windows
-            .borrow_mut()
-            .take()
-            .expect("Application::Start callback ran twice");
-        let env = env
-            .borrow_mut()
-            .take()
-            .expect("Application::Start callback ran twice");
+    let result = Application::Start(&ApplicationInitializationCallback::new({
+        let handle_slot = handle_slot.clone();
+        move |_params| {
+            // The UI thread's `DispatcherQueue` now exists: bind it to the
+            // executor installed before `make_app` and replay buffered schedules.
+            deferred
+                .activate()
+                .expect("UI thread DispatcherQueue missing inside Application::Start");
+            let windows = windows
+                .borrow_mut()
+                .take()
+                .expect("Application::Start callback ran twice");
+            let env = env
+                .borrow_mut()
+                .take()
+                .expect("Application::Start callback ran twice");
+            let termination = termination
+                .borrow_mut()
+                .take()
+                .expect("Application::Start callback ran twice");
+            let menu_bar = menu_bar
+                .borrow_mut()
+                .take()
+                .expect("Application::Start callback ran twice");
 
-        let _app = create_application(Box::new(move || {
-            let application = Application::Current().expect("Application::Current");
-            install_xaml_controls_resources(&application)?;
+            let handle_slot = handle_slot.clone();
+            let _app = create_application(Box::new(move || {
+                let application = Application::Current().expect("Application::Current");
+                install_xaml_controls_resources(&application)?;
 
-            // WinRT stowed exceptions (0xC000027B) carry no stderr output of
-            // their own; surface the real HRESULT and message here. `Handled`
-            // is left unset — the exception still terminates the process.
-            let revoker = application
-                .UnhandledException(|_sender, args| {
-                    if let Ok(args) = args.ok() {
-                        let code = args.Exception().unwrap_or_default();
-                        let message = args.Message().unwrap_or_default();
-                        tracing::error!(?code, %message, "unhandled XAML exception");
-                    }
-                })
-                .expect("Application::UnhandledException");
-            // The subscription lives for the process lifetime.
-            core::mem::forget(revoker);
+                // WinRT stowed exceptions (0xC000027B) carry no stderr output of
+                // their own; surface the real HRESULT and message here. `Handled`
+                // is left unset — the exception still terminates the process.
+                let revoker = application
+                    .UnhandledException(|_sender, args| {
+                        if let Ok(args) = args.ok() {
+                            let code = args.Exception().unwrap_or_default();
+                            let message = args.Message().unwrap_or_default();
+                            tracing::error!(?code, %message, "unhandled XAML exception");
+                        }
+                    })
+                    .expect("Application::UnhandledException");
+                // The subscription lives for the process lifetime.
+                core::mem::forget(revoker);
 
-            match last_window {
-                LastWindowPolicy::Quit if windows.is_empty() => {
-                    // No window will ever close, so nothing would end the
-                    // dispatcher: an app that quits after its last window
-                    // and declares none has nothing to run.
-                    tracing::info!(
-                        "the application declares no window and quits after its last one"
-                    );
-                    application.Exit()?;
-                    return Ok(());
-                }
-                // `OnLastWindowClose` is WinUI's default, which is `Quit`.
-                LastWindowPolicy::Quit => {}
-                LastWindowPolicy::StayResident => {
-                    application
-                        .cast::<IApplication3>()?
-                        .SetDispatcherShutdownMode(DispatcherShutdownMode::OnExplicitShutdown)?;
-                }
-            }
+                waterui_locale::start_system_locale_listener();
+                let renderer = WinUiRenderer::new(UiThread::for_current_thread()?);
+                let executor = renderer.executor().clone();
 
-            let executor = DispatcherQueueExecutor::for_current_thread()?;
-            waterui_locale::start_system_locale_listener();
-            let mut renderer = WinUiRenderer::new(executor.clone());
+                // GPU-backed content (`GpuContentView`, `FilteredView`) shares
+                // one device, created on the dispatcher and installed into the
+                // environment before any window content is rendered.
+                let pending = Rc::new(RefCell::new(windows));
+                let handle_slot = handle_slot.clone();
+                let task_executor = executor.clone();
+                executor
+                    .spawn_local(async move {
+                        let mut env = env;
+                        #[cfg(feature = "gpu")]
+                        {
+                            let runtime =
+                                waterui_graphics::GpuRuntime::new()
+                                    .await
+                                    .unwrap_or_else(|error| {
+                                        panic!("WinUI GPU runtime creation failed: {error}")
+                                    });
+                            env.insert(runtime);
+                        }
+                        // Theme tokens (fonts, palette, color scheme) must exist
+                        // before any view resolves.
+                        crate::theme::install(&mut env).expect("WinUI theme installation failed");
+                        // The `Termination` machine starts on the fully assembled
+                        // environment so its hooks' extractors see theme and GPU
+                        // state, and installs `Quit` before any window or menu
+                        // can file through it.
+                        let window_count = pending.borrow().len();
+                        let Some(session_end) = wire_termination(
+                            &mut env,
+                            termination,
+                            &application,
+                            &task_executor,
+                            window_count,
+                            last_window,
+                            &handle_slot,
+                        ) else {
+                            return;
+                        };
+                        let windows =
+                            AppWindows::install(&mut env, renderer, session_end, &menu_bar);
+                        let launch = pending.borrow_mut().drain(..).collect::<Vec<_>>();
+                        for desc in launch {
+                            windows.open(desc);
+                        }
+                    })
+                    .detach();
+                Ok(())
+            }))
+            .expect("Application::compose");
+        }
+    }));
 
-            // GPU-backed surfaces (GpuSurface, AppliedFilter, vector scenes)
-            // share one device, created on the dispatcher and installed into
-            // the environment before any window content is rendered.
-            let pending = Rc::new(RefCell::new(windows));
-            executor
-                .spawn_local(async move {
-                    let mut env = env;
-                    #[cfg(feature = "gpu")]
-                    {
-                        let runtime =
-                            waterui_graphics::GpuRuntime::new()
-                                .await
-                                .unwrap_or_else(|error| {
-                                    panic!("WinUI GPU runtime creation failed: {error}")
-                                });
-                        env.insert(runtime);
-                    }
-                    // Theme tokens (fonts, palette, color scheme) must exist
-                    // before any view resolves.
-                    crate::theme::install(&mut env).expect("WinUI theme installation failed");
-                    let windows = pending.borrow_mut().drain(..).collect::<Vec<_>>();
-                    for desc in windows {
-                        let window = open_window(desc, &env, &mut renderer)
-                            .expect("failed to open WaterUI window");
-                        // WinUI keeps a window alive until it closes; the
-                        // leaked vector pins them for the process lifetime.
-                        let _leaked: &'static _ = Box::leak(Box::new(window));
-                    }
-                })
-                .detach();
-            Ok(())
-        }))
-        .expect("Application::compose");
-    }))
+    // `Application::Start` returns once the dispatcher shuts down; the slot —
+    // and with it the machine — drops here, after the run has ended.
+    result
 }
