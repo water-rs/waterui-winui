@@ -8,7 +8,7 @@ use waterui::prelude::Divider;
 use waterui_core::layout::Point;
 use waterui_core::{Environment, Native};
 use waterui_layout::container::{FixedContainer, LazyContainer};
-use waterui_layout::scroll::{Axis, ScrollView, ScrollViewParts};
+use waterui_layout::scroll::{Axis, ScrollRequest, ScrollView, ScrollViewParts};
 use waterui_layout::spacer::Spacer;
 use windows_core::Interface;
 
@@ -130,14 +130,14 @@ impl WinUiComponent for Native<ScrollView> {
             let queue = renderer.executor().queue().clone();
             let weak = viewer.downgrade().expect("ScrollViewer supports weak refs");
             let generation = controller.generation();
-            let target = controller.target();
+            let request = controller.request();
             let guard = generation.watch(move |_| {
-                let target = target.snapshot();
+                let request = request.snapshot();
                 let weak = weak.clone();
                 let queue = queue.clone();
                 enqueue_on_ui_thread(&queue, move || {
                     if let Some(viewer) = weak.upgrade() {
-                        apply_scroll_target(&viewer, axis, target);
+                        apply_scroll_request(&viewer, axis, &request);
                     }
                 });
             });
@@ -205,7 +205,11 @@ fn report_offset(viewer: &ScrollViewer, offset: &Binding<Point>, last: &Cell<Poi
     }
 }
 
-fn apply_scroll_target(viewer: &ScrollViewer, axis: Axis, target: Point) {
+/// Applies a controller request: a request without an animation jumps, and
+/// any animation plays the viewer's own animated scroll — the platform motion
+/// `Animation::Default` names.
+fn apply_scroll_request(viewer: &ScrollViewer, axis: Axis, request: &ScrollRequest<Point>) {
+    let target = request.target;
     let horizontal = match axis {
         Axis::Horizontal | Axis::All => Some(f64::from(target.x)),
         Axis::Vertical => None,
@@ -216,5 +220,10 @@ fn apply_scroll_target(viewer: &ScrollViewer, axis: Axis, target: Point) {
         Axis::Horizontal => None,
         _ => panic!("unsupported scroll axis on the WinUI backend: {axis:?}"),
     };
-    let _ = viewer.ChangeView(horizontal, vertical, None);
+    let _ = viewer.ChangeViewWithOptionalAnimation(
+        horizontal,
+        vertical,
+        None,
+        request.animation.is_none(),
+    );
 }

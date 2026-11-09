@@ -123,24 +123,32 @@ impl WinUiComponent for Native<ListConfig> {
         })];
 
         // Programmatic scroll-to-index: realize the target row, then ask the
-        // ancestor ScrollViewer to bring it into view.
+        // ancestor ScrollViewer to bring it into view. A request without an
+        // animation jumps; any animation plays the viewer's own animated
+        // scroll, the platform motion `Animation::Default` names.
         if let Some(controller) = config.scroll_controller {
-            let target = controller.target();
+            let request = controller.request();
             let queue = renderer.executor().queue().clone();
             let weak = repeater.downgrade().expect("weak ref");
             guards.push(controller.generation().watch(move |_| {
-                let index = target.snapshot();
+                let request = request.snapshot();
                 let weak = weak.clone();
                 let queue = queue.clone();
                 enqueue_on_ui_thread(&queue, move || {
                     if let Some(repeater) = weak.upgrade() {
+                        let options =
+                            BringIntoViewOptions::new().expect("BringIntoViewOptions::new");
+                        options
+                            .SetAnimationDesired(request.animation.is_some())
+                            .expect("BringIntoViewOptions::SetAnimationDesired");
                         repeater
                             .GetOrCreateElement(
-                                i32::try_from(index).expect("scroll target index fits i32"),
+                                i32::try_from(request.target)
+                                    .expect("scroll target index fits i32"),
                             )
                             .expect("ItemsRepeater::GetOrCreateElement")
-                            .StartBringIntoView()
-                            .expect("UIElement::StartBringIntoView");
+                            .StartBringIntoViewWithOptions(&options)
+                            .expect("UIElement::StartBringIntoViewWithOptions");
                     }
                 });
             }));

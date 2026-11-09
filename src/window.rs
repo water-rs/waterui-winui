@@ -3,12 +3,14 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use nami::Signal;
+use nami::{Computed, Signal, SignalExt as _, signal::IntoComputed as _};
 use waterui::window::{
-    UserAttention, Window as WaterUiWindow, WindowIcon, WindowLevel, WindowState, WindowStyle,
+    ResolvedWindowBackground, UserAttention, Window as WaterUiWindow, WindowBackground, WindowIcon,
+    WindowLevel, WindowState, WindowStyle, resolve_background,
 };
 use waterui_controls::menu::ResolvedMenuItem;
 use waterui_core::Environment;
+use waterui_graphics::color::WorkingColor;
 use waterui_layout::Size;
 use windows_core::Interface;
 
@@ -20,6 +22,52 @@ use crate::session_end::SessionEnd;
 use crate::util::{
     framework, solid_brush, store_event_revoker, store_watcher_guards, subscribe_then_get,
 };
+
+/// The window a menu is mounted in, as the environment of everything that
+/// window renders carries it: closing is a write of [`WindowState::Closed`],
+/// the same path a programmatic close takes.
+#[derive(Clone)]
+pub(crate) struct OwnerWindow {
+    state: nami::Binding<WindowState>,
+    closable: bool,
+}
+
+impl OwnerWindow {
+    /// Whether the window was declared with a close button.
+    pub(crate) const fn closable(&self) -> bool {
+        self.closable
+    }
+
+    /// Asks the window to close.
+    pub(crate) fn close(&self) {
+        self.state.set(WindowState::Closed);
+    }
+}
+
+/// The colour `WinUI` paints behind a window's content, following
+/// `background`.
+///
+/// `WinUI` realizes no material: a [`WindowBackground::Material`] draws the
+/// window opaque in the theme's background colour, as
+/// [`WindowBackground::Opaque`] does — the contract of the backends that
+/// realize no material.
+fn painted_background(
+    background: &nami::Binding<WindowBackground>,
+    env: &Environment,
+) -> Computed<WorkingColor> {
+    let without_material = background.map(|background| match background {
+        WindowBackground::Material(_) => WindowBackground::Opaque,
+        background => background,
+    });
+    resolve_background(&without_material, env)
+        .map(|resolved| match resolved {
+            ResolvedWindowBackground::Color(color) => color,
+            ResolvedWindowBackground::Material(_) => {
+                unreachable!("every material was mapped to an opaque background above")
+            }
+        })
+        .into_computed()
+}
 
 /// Opens one `WinUI` `Window` for a `WaterUI` window description and keeps its
 /// reactive state (title, open state, background) synchronized.
@@ -36,6 +84,13 @@ pub fn open_window(
 ) -> windows_core::Result<()> {
     let window = Window::new()?;
     let ui = renderer.ui_thread().clone();
+
+    // Everything the window mounts — the menu bar, context menus — sees its
+    // owner, so a `MenuItem::CloseWindow` closes the window it sits in.
+    let env = &env.extending(OwnerWindow {
+        state: desc.state.clone(),
+        closable: desc.closable,
+    });
 
     // Content.
     let view = renderer.render_any(desc.content.build(), env);
@@ -54,7 +109,7 @@ pub fn open_window(
     // colour otherwise, following both a switch between the two and a change
     // of the colour.
     {
-        let resolved = waterui::window::resolve_background(&desc.background, env);
+        let resolved = painted_background(&desc.background, env);
         let weak = content.downgrade().expect("UIElement weak ref");
         let queue = window.DispatcherQueue()?;
         let (initial, guard) = subscribe_then_get(&resolved, move |ctx| {

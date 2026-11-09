@@ -32,6 +32,7 @@ Microsoft::UI::Windowing::TitleBarTheme::{UseDefaultAppMode, Light, Dark}
 Microsoft::UI::Xaml::Application::{CreateInstance, Current, Start}
 Microsoft::UI::Xaml::ApplicationInitializationCallback
 Microsoft::UI::Xaml::Automation::AutomationProperties::{SetAccessibilityView, SetAutomationId, SetFullDescription, SetHeadingLevel, SetHelpText, SetIsDataValidForForm, SetIsDialog, SetIsPeripheral, SetIsRequiredForForm, SetItemStatus, SetItemType, SetLabeledBy, SetLandmarkType, SetLevel, SetLiveSetting, SetLocalizedControlType, SetLocalizedLandmarkType, SetName, SetPositionInSet, SetSizeOfSet}
+Microsoft::UI::Xaml::BringIntoViewOptions::CreateInstance
 Microsoft::UI::Xaml::Controls::Canvas::{LeftProperty, SetLeft, SetTop, TopProperty}
 Microsoft::UI::Xaml::Controls::ColumnDefinition::CreateInstance
 Microsoft::UI::Xaml::Controls::ColumnDefinitionCollection::{}
@@ -101,6 +102,7 @@ Microsoft::UI::Xaml::IApplication::{add_UnhandledException, remove_UnhandledExce
 Microsoft::UI::Xaml::IApplication3::{get_DispatcherShutdownMode, put_DispatcherShutdownMode}
 Microsoft::UI::Xaml::UnhandledExceptionEventArgs::{get_Exception, get_Message, get_Handled, put_Handled}
 Microsoft::UI::Xaml::IApplicationOverrides::{}
+Microsoft::UI::Xaml::IBringIntoViewOptions::put_AnimationDesired
 Microsoft::UI::Xaml::IDependencyObject::ClearValue
 Microsoft::UI::Xaml::IElementFactory::{}
 Microsoft::UI::Xaml::IElementFactoryGetArgs::get_Data
@@ -111,7 +113,7 @@ Microsoft::UI::Xaml::IFrameworkElement::put_Style
 Microsoft::UI::Xaml::IFrameworkElementStatics::{get_WidthProperty, get_HeightProperty, get_MinWidthProperty, get_MaxWidthProperty, get_MinHeightProperty, get_MaxHeightProperty, get_HorizontalAlignmentProperty, get_VerticalAlignmentProperty, get_MarginProperty}
 Microsoft::UI::Xaml::IResourceDictionary::get_MergedDictionaries
 Microsoft::UI::Xaml::ISizeChangedEventArgs::get_NewSize
-Microsoft::UI::Xaml::IUIElement::{CapturePointer, Focus, ReleasePointerCapture, ReleasePointerCaptures, get_XamlRoot, put_XamlRoot, get_FocusState, put_Opacity, StartBringIntoView}
+Microsoft::UI::Xaml::IUIElement::{CapturePointer, Focus, ReleasePointerCapture, ReleasePointerCaptures, get_XamlRoot, put_XamlRoot, get_FocusState, put_Opacity, StartBringIntoView, StartBringIntoViewWithOptions}
 Microsoft::UI::Xaml::IUIElement::{add_PointerEntered, add_PointerExited, add_PointerMoved, add_PointerPressed, add_PointerReleased, remove_PointerEntered, remove_PointerExited, remove_PointerMoved, remove_PointerPressed, remove_PointerReleased}
 Microsoft::UI::Xaml::IUIElementStatics::get_OpacityProperty
 Microsoft::UI::Xaml::IWindow2::{get_AppWindow, put_SystemBackdrop}
