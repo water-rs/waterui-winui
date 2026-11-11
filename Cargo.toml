@@ -7,7 +7,7 @@ version = "0.1.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/water-rs/waterui-winui"
-rust-version = "1.95"
+rust-version = "1.99"
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "warn"
@@ -30,7 +30,7 @@ workspace = true
 
 [features]
 default = ["gpu"]
-gpu = ["waterui-graphics/gpu", "waterui-shape/gpu", "dep:windows"]
+gpu = ["waterui-graphics/gpu", "dep:windows"]
 self-contained = ["dep:windows-reactor-setup"]
 
 [target.'cfg(target_os = "windows")'.dependencies]
@@ -54,7 +54,6 @@ ctrlc = "3.5"
 waterui = { version = "0.5.0", default-features = false }
 waterui-core = "0.5.0"
 waterui-backend-core = { version = "0.5.0", default-features = false, features = [
-    "widgets",
     "gestures",
 ] }
 waterui-text = "0.5.0"
