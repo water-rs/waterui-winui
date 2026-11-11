@@ -19,10 +19,10 @@ use waterui_form::picker::date::DatePickerConfig;
 use waterui_form::picker::multi_date::MultiDatePickerConfig;
 use waterui_form::secure::SecureFieldConfig;
 #[cfg(feature = "gpu")]
-use waterui_graphics::FilteredView;
-#[cfg(feature = "gpu")]
 use waterui_graphics::GpuContentView;
 use waterui_graphics::Gradient;
+#[cfg(feature = "gpu")]
+use waterui_graphics::backend::FilteredView;
 use waterui_graphics::color::Color;
 use waterui_icon::SystemIcon;
 use waterui_layout::container::{FixedContainer, LazyContainer};

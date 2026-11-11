@@ -260,7 +260,7 @@ fn passthrough_content(view: &AnyView) -> Option<&AnyView> {
     // `FilteredView` is a view in its own right, not a `Metadata` wrapper,
     // but its stretch answer still comes from the filtered content.
     #[cfg(feature = "gpu")]
-    if let Some(filtered) = view.downcast_ref::<waterui_graphics::FilteredView>() {
+    if let Some(filtered) = view.downcast_ref::<waterui_graphics::backend::FilteredView>() {
         return Some(&filtered.content);
     }
 

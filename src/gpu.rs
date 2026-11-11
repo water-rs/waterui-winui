@@ -10,14 +10,14 @@ use std::time::{Duration, Instant};
 use executor_core::{LocalExecutor, Task};
 use waterui_core::Environment;
 use waterui_core::layout::{ProposalSize, ViewDimensions};
-use waterui_graphics::draw::kurbo;
-use waterui_graphics::filter_view::ErasedEffect;
-use waterui_graphics::filtrate::{
-    EffectContext, EffectFrameClock, EffectInput, EffectOutput, ShapeTextures,
+use waterui_graphics::backend::filtrate::{
+    EffectContext, EffectFrameClock, EffectInput, EffectOutput,
 };
+use waterui_graphics::backend::{ErasedEffect, FilteredView};
+use waterui_graphics::gpu::wgpu;
+use waterui_graphics::input::{Point, SurfaceInputEvent, SurfacePointerButton};
 use waterui_graphics::{
-    Context as GpuContext, FilteredView, Frame as GpuFrame, GpuContent, GpuContentView, GpuRuntime,
-    RedrawHandle, SurfaceInputEvent, SurfacePointerButton, wgpu,
+    Context as GpuContext, Frame as GpuFrame, GpuContent, GpuContentView, GpuRuntime, RedrawHandle,
 };
 use windows::Win32::Foundation::{CloseHandle, GENERIC_ALL, HMODULE};
 use windows::Win32::Graphics::Direct3D::{
@@ -313,7 +313,7 @@ fn release_held_buttons(
         .expect("PointerRoutedEventArgs::GetCurrentPoint")
         .Position()
         .expect("PointerPoint::Position");
-    let position = kurbo::Point::new(f64::from(position.x), f64::from(position.y));
+    let position = Point::new(f64::from(position.x), f64::from(position.y));
     for button in BUTTONS {
         if held & button_bit(button) != 0 {
             state.view.input(&SurfaceInputEvent::PointerButton {
@@ -352,7 +352,7 @@ fn pointer_input(
         return;
     }
     let position = point.Position().expect("PointerPoint::Position");
-    let position = kurbo::Point::new(f64::from(position.x), f64::from(position.y));
+    let position = Point::new(f64::from(position.x), f64::from(position.y));
     let kind = point
         .Properties()
         .expect("PointerPoint::Properties")
@@ -837,9 +837,6 @@ async fn filter_frame(
     let input_view = targets
         .input
         .create_view(&wgpu::TextureViewDescriptor::default());
-    let effect_output_view = targets
-        .output
-        .create_view(&wgpu::TextureViewDescriptor::default());
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
         label: Some("waterui-winui filter encoder"),
     });
@@ -850,26 +847,21 @@ async fn filter_frame(
         &interop.conversion.pipeline,
         &targets.capture_to_input,
     );
-    let effect_input = EffectInput {
+    // The effect's length parameters are declared in points; `scale` is
+    // the device pixels per point the capture rendered at.
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "a XAML rasterization scale is a small positive factor"
+    )]
+    let length_scale = scale as f32;
+    let effect_input = EffectInput::new(
         device,
-        queue: queue_wgpu,
-        texture: &targets.input,
-        view: input_view,
-        format: wgpu::TextureFormat::Rgba16Float,
-        width: pw,
-        height: ph,
-        timing: state.clock.borrow_mut().tick(),
-        shape: ShapeTextures::default(),
-    };
-    let effect_output = EffectOutput {
-        device,
-        queue: queue_wgpu,
-        texture: &targets.output,
-        view: effect_output_view,
-        format: wgpu::TextureFormat::Rgba16Float,
-        width: ow,
-        height: oh,
-    };
+        queue_wgpu,
+        &targets.input,
+        state.clock.borrow_mut().tick(),
+        length_scale,
+    );
+    let effect_output = EffectOutput::new(device, queue_wgpu, &targets.output);
     if let Err(error) =
         state
             .effect
