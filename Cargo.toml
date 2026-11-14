@@ -140,7 +140,7 @@ waterui-shape = { git = "https://github.com/water-rs/waterui", branch = "dev" }
 waterui-text = { git = "https://github.com/water-rs/waterui", branch = "dev" }
 waterui-url = { git = "https://github.com/water-rs/waterui", branch = "dev" }
 waterui-video = { git = "https://github.com/water-rs/waterui", branch = "dev" }
-waterkit-build = { git = "https://github.com/water-rs/waterkit", branch = "dev" }
-waterkit-clipboard = { git = "https://github.com/water-rs/waterkit", branch = "dev" }
-waterkit-dialog = { git = "https://github.com/water-rs/waterkit", branch = "dev" }
-waterkit-fs = { git = "https://github.com/water-rs/waterkit", branch = "dev" }
+waterkit-build = { git = "https://github.com/water-rs/waterkit", branch = "main" }
+waterkit-clipboard = { git = "https://github.com/water-rs/waterkit", branch = "main" }
+waterkit-dialog = { git = "https://github.com/water-rs/waterkit", branch = "main" }
+waterkit-fs = { git = "https://github.com/water-rs/waterkit", branch = "main" }
