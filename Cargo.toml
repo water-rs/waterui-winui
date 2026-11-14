@@ -6,7 +6,7 @@ members = [".", "tools/bindgen", "vendor/gpu-allocator"]
 version = "0.1.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/water-rs/waterui-winui"
+repository = "https://github.com/water-rs/winui-backend"
 rust-version = "1.95"
 
 [workspace.lints.rust]

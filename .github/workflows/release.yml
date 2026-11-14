@@ -1,17 +1,14 @@
 name: Release
 
+# Every push to `main` runs both jobs: `release` publishes unpublished crates
+# (crates.io trusted publishing rejects OIDC tokens minted under
+# `workflow_run`, and the required `CI result` check on `main` already
+# guarantees the merged commit passed CI), and `release-pr` opens or refreshes
+# the version bump and changelog pull request against `main`. Merging that
+# pull request is the release.
 on:
-  # crates.io trusted publishing rejects OIDC tokens minted under
-  # `workflow_run`, so publishing runs on the `main` push itself — which
-  # can only come from a merged pull request (the dev -> main release PR)
-  # whose required checks already passed on the same tree. `release-pr`
-  # still waits for CI via `workflow_run`.
   push:
     branches: [main]
-  workflow_run:
-    workflows: ["CI"]
-    branches: [main]
-    types: [completed]
 
 permissions:
   contents: write
@@ -23,24 +20,36 @@ jobs:
   release:
     name: Release unpublished packages
     runs-on: ubuntu-latest
-    if: github.event_name == 'push'
     concurrency:
       group: release-${{ github.ref_name }}
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: main
           fetch-depth: 0
       - uses: dtolnay/rust-toolchain@stable
+      # The water-rs fork of release-plz (from release-plz-v0.3.161, the version
+      # release-plz-action@v0.5 pins) treats a package it cannot compare with the
+      # registry as changed instead of aborting.
+      - uses: taiki-e/cache-cargo-install-action@v3
+        with:
+          tool: release-plz
+          git: https://github.com/water-rs/release-plz
+          rev: 3f421b280f377c2899f3a3750b4ad7a4f7e613c1
+          locked: true
+      - uses: release-plz/git-config@v0.1.2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       # Mint a short-lived crates.io token from the GitHub OIDC identity
       # instead of a stored CARGO_REGISTRY_TOKEN (trusted publishing is
       # configured per crate on crates.io).
       - uses: rust-lang/crates-io-auth-action@v1
         id: crates-io-auth
-      - uses: MarcoIeni/release-plz-action@v0.5
-        with:
-          command: release
+      - run: >-
+          release-plz release
+          --git-token "${GITHUB_TOKEN}"
+          --repo-url "https://github.com/${GITHUB_REPOSITORY}"
+          --forge github
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CARGO_REGISTRY_TOKEN: ${{ steps.crates-io-auth.outputs.token }}
@@ -48,30 +57,44 @@ jobs:
   release-pr:
     name: Prepare the next release
     runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main'
     concurrency:
-      group: release-plz-${{ github.event.workflow_run.head_branch }}
+      group: release-plz-pr
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: main
           fetch-depth: 0
       - uses: dtolnay/rust-toolchain@stable
-      - uses: MarcoIeni/release-plz-action@v0.5
-        id: release-plz
+      - uses: taiki-e/cache-cargo-install-action@v3
         with:
-          command: release-pr
+          tool: release-plz
+          git: https://github.com/water-rs/release-plz
+          rev: 3f421b280f377c2899f3a3750b4ad7a4f7e613c1
+          locked: true
+      - uses: release-plz/git-config@v0.1.2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # `-o json` prints the release pull request release-plz created or
+      # updated, if any, on stdout and leaves the progress log on stderr.
+      - id: release-plz
+        run: |
+          report=$(release-plz release-pr \
+            --git-token "${GITHUB_TOKEN}" \
+            --repo-url "https://github.com/${GITHUB_REPOSITORY}" \
+            --forge github \
+            -o json)
+          echo "${report}"
+          pr=$(jq -c '.prs[0] // empty' <<< "${report}")
+          echo "pr=${pr}" >> "${GITHUB_OUTPUT}"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # The workflow token's pull request triggers no workflow, so its
-      # required gate is dispatched on the release branch here. The action
-      # reports `pr` as `{}` when there is no release pull request, so
-      # `prs_created` is what says whether there is one.
-      - name: Pass the release pull request's gate
-        if: steps.release-plz.outputs.prs_created == 'true'
+      # GitHub holds the pull request runs of a pull request the Actions bot
+      # opened or pushed until they are approved, and the required
+      # `CI result` reports only from those runs.
+      - name: Approve the release PR's CI
+        if: steps.release-plz.outputs.pr != ''
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          HEAD_BRANCH: ${{ fromJSON(steps.release-plz.outputs.pr).head_branch }}
-        run: gh workflow run pr-base-gate.yml --repo "${GITHUB_REPOSITORY}" --ref "${HEAD_BRANCH}"
+          PR: ${{ steps.release-plz.outputs.pr }}
+        run: bash .github/scripts/approve-held-runs.sh "$(jq -er .number <<<"$PR")"
