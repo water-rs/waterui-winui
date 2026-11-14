@@ -3772,7 +3772,7 @@ dependencies = [
 [[package]]
 name = "waterkit-build"
 version = "0.1.4"
-source = "git+https://github.com/water-rs/waterkit?branch=dev#c3ea2a5ad27c6e4eae2168d7e595389b570b6b33"
+source = "git+https://github.com/water-rs/waterkit?branch=main#c3ea2a5ad27c6e4eae2168d7e595389b570b6b33"
 dependencies = [
  "futures-channel",
  "jni 0.22.4",
@@ -3784,7 +3784,7 @@ dependencies = [
 [[package]]
 name = "waterkit-core"
 version = "0.1.4"
-source = "git+https://github.com/water-rs/waterkit?branch=dev#c3ea2a5ad27c6e4eae2168d7e595389b570b6b33"
+source = "git+https://github.com/water-rs/waterkit?branch=main#c3ea2a5ad27c6e4eae2168d7e595389b570b6b33"
 dependencies = [
  "dispatch2",
  "executor-core",
@@ -3800,7 +3800,7 @@ dependencies = [
 [[package]]
 name = "waterkit-dialog"
 version = "0.1.4"
-source = "git+https://github.com/water-rs/waterkit?branch=dev#c3ea2a5ad27c6e4eae2168d7e595389b570b6b33"
+source = "git+https://github.com/water-rs/waterkit?branch=main#c3ea2a5ad27c6e4eae2168d7e595389b570b6b33"
 dependencies = [
  "block2",
  "dispatch2",
@@ -3823,7 +3823,7 @@ dependencies = [
 [[package]]
 name = "waterkit-fs"
 version = "0.1.4"
-source = "git+https://github.com/water-rs/waterkit?branch=dev#c3ea2a5ad27c6e4eae2168d7e595389b570b6b33"
+source = "git+https://github.com/water-rs/waterkit?branch=main#c3ea2a5ad27c6e4eae2168d7e595389b570b6b33"
 dependencies = [
  "async-fs",
  "dirs",
@@ -5067,4 +5067,4 @@ dependencies = [
 [[patch.unused]]
 name = "waterkit-clipboard"
 version = "0.1.4"
-source = "git+https://github.com/water-rs/waterkit?branch=dev#c3ea2a5ad27c6e4eae2168d7e595389b570b6b33"
+source = "git+https://github.com/water-rs/waterkit?branch=main#c3ea2a5ad27c6e4eae2168d7e595389b570b6b33"
